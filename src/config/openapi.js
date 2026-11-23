@@ -7,8 +7,18 @@ import { authDocs } from '../modules/auth/auth.docs.js';
 import { usersDocs } from '../modules/users/users.docs.js';
 import { projectsDocs } from '../modules/projects/projects.docs.js';
 import { tasksDocs } from '../modules/tasks/tasks.docs.js';
+import { commentsDocs } from '../modules/comments/comments.docs.js';
+import { attachmentsDocs } from '../modules/attachments/attachments.docs.js';
 
-const moduleDocs = [healthDocs, authDocs, usersDocs, projectsDocs, tasksDocs];
+const moduleDocs = [
+  healthDocs,
+  authDocs,
+  usersDocs,
+  projectsDocs,
+  tasksDocs,
+  commentsDocs,
+  attachmentsDocs,
+];
 
 const errorResponseSchema = {
   type: 'object',

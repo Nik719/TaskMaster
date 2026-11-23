@@ -3,6 +3,7 @@ import { ApiError } from '../../utils/ApiError.js';
 import { publicUserSelect } from '../../utils/serializers.js';
 import { pageArgs, pageMeta } from '../../utils/pagination.js';
 import { MANAGER_ROLES, ROLES, requireMember, requireRole } from './access.js';
+import { removeFiles } from '../../storage/localStorage.js';
 
 const projectSelect = {
   id: true,
@@ -75,7 +76,12 @@ export async function updateProject(projectId, userId, changes) {
 /** Deletes the project with everything in it. */
 export async function deleteProject(projectId, userId) {
   await requireRole(projectId, userId, [ROLES.OWNER], 'delete the project');
+  const files = await prisma.attachment.findMany({
+    where: { task: { projectId } },
+    select: { storageKey: true },
+  });
   await prisma.project.delete({ where: { id: projectId } });
+  await removeFiles(files.map((f) => f.storageKey));
 }
 
 // ── Members ──

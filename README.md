@@ -3,7 +3,7 @@
 A REST API for team task management: projects, role-based membership, tasks, comments,
 attachments and real-time notifications. Built for the Airtribe Backend & System Design course.
 
-> **Status:** Phase 5 (tasks) complete. Features are added phase by phase. This README
+> **Status:** Phase 6 (comments & attachments) complete. Features are added phase by phase. This README
 > grows with them, and becomes the full reference in Phase 9.
 
 ## Tech stack
@@ -97,6 +97,8 @@ Then open:
 | `JWT_ACCESS_EXPIRES_IN`  | no        | `15m`                   | Access token lifetime                                        |
 | `REFRESH_TOKEN_TTL_DAYS` | no        | `7`                     | How long a login lasts without use                           |
 | `BCRYPT_SALT_ROUNDS`     | no        | `12`                    | bcrypt cost factor (tests use 4)                             |
+| `UPLOAD_DIR`             | no        | `uploads`               | Folder for uploaded attachments                              |
+| `MAX_UPLOAD_MB`          | no        | `10`                    | Largest accepted upload (MB)                                 |
 
 Variables are validated at startup. If one is missing or malformed, the app exits immediately and
 names the problem.
@@ -157,6 +159,11 @@ tests/
 | GET              | `/api/v1/tasks/:taskId`                                 | ✔    | View a task                                      |
 | PATCH            | `/api/v1/tasks/:taskId`                                 | ✔    | Edit, assign (`assigneeId`), complete (`status`) |
 | DELETE           | `/api/v1/tasks/:taskId`                                 | ✔    | Delete (creator, or project owner/admin)         |
+| GET / POST       | `/api/v1/tasks/:taskId/comments`                        | ✔    | List / add comments                              |
+| PATCH / DELETE   | `/api/v1/tasks/:taskId/comments/:commentId`             | ✔    | Edit own / delete (author, owner, admin)         |
+| GET / POST       | `/api/v1/tasks/:taskId/attachments`                     | ✔    | List / upload (multipart field `file`)           |
+| GET              | `/api/v1/tasks/:taskId/attachments/:id/download`        | ✔    | Download a file                                  |
+| DELETE           | `/api/v1/tasks/:taskId/attachments/:id`                 | ✔    | Delete (uploader, owner, admin)                  |
 
 ✔ = send `Authorization: Bearer <accessToken>`.
 

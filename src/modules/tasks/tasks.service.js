@@ -3,6 +3,7 @@ import { ApiError } from '../../utils/ApiError.js';
 import { publicUserSelect } from '../../utils/serializers.js';
 import { pageArgs, pageMeta } from '../../utils/pagination.js';
 import { getMembership, isManager, requireMember } from '../projects/access.js';
+import { removeFiles } from '../../storage/localStorage.js';
 
 export const taskSelect = {
   id: true,
@@ -102,13 +103,19 @@ export async function updateTask(taskId, userId, changes) {
   return { task: updated, previous: task };
 }
 
-/** The creator, or a project owner/admin, may delete a task. */
+/** The creator, or a project owner/admin, may delete a task (with its comments and files). */
 export async function deleteTask(taskId, userId) {
   const { task, role } = await getAccessibleTask(taskId, userId);
   if (task.creatorId !== userId && !isManager(role)) {
     throw ApiError.forbidden('Only the task creator or a project owner/admin can delete this task');
   }
+  // Collect file keys first: the rows disappear with the task (cascade), the files don't.
+  const files = await prisma.attachment.findMany({
+    where: { taskId },
+    select: { storageKey: true },
+  });
   await prisma.task.delete({ where: { id: taskId } });
+  await removeFiles(files.map((f) => f.storageKey));
   return task;
 }
 
