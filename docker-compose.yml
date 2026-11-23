@@ -1,0 +1,25 @@
+# Local development infrastructure.
+# Phase 2: PostgreSQL only (the API runs on your machine with `npm run dev`).
+# Phase 9 adds a container for the API itself.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: taskmaster-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: taskmaster
+      POSTGRES_PASSWORD: taskmaster
+      POSTGRES_DB: taskmaster
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U taskmaster -d taskmaster']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

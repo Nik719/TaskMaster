@@ -1,0 +1,13 @@
+// TaskMaster database schema.
+// Models are added in Phase 3 (first migration), following the design agreed in Phase 1.
+
+generator client {
+  // "prisma-client-js" generates plain JavaScript into node_modules/@prisma/client.
+  // (The newer "prisma-client" generator emits TypeScript source, which a JS project can't run directly.)
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // The connection URL lives in prisma.config.js (Prisma 7+), not here.
+}

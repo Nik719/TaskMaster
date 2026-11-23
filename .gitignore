@@ -1,0 +1,17 @@
+node_modules/
+coverage/
+
+# Environment files hold secrets — only the example is committed.
+.env
+.env.*
+!.env.example
+
+# Uploaded files (keep the folder itself)
+uploads/*
+!uploads/.gitkeep
+
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
