@@ -1,9 +1,9 @@
 # Requirements checklist
 
 Status of every requirement in [`requirements.md`](requirements.md), with where it is
-implemented and the test that proves it. Updated at the end of each phase.
+implemented and the test that proves it. Final check: 2026-11-23 (Phase 9).
 
-Legend: ✅ done · 🟡 partly done · ⬜ not started
+Legend: ✅ done · 🟡 partly done · ⬜ not started · ⏭️ skipped by decision
 
 ## User stories
 
@@ -22,7 +22,7 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 | US11 | Create a team/project and invite members     | ✅     | `POST /projects`, `POST /projects/:id/invitations`, `POST /invitations/:id/accept`                                                           | `src/modules/projects/`, `src/modules/invitations/`                 | `tests/integration/projects.test.js`      |
 | US12 | Log out securely                             | ✅     | `POST /auth/logout`, `POST /auth/logout-all`                                                                                                 | `src/modules/auth/`, `src/middleware/authenticate.js`               | `tests/integration/auth.test.js`          |
 | US13 | Real-time notifications                      | ✅     | `GET /notifications`, `PATCH /notifications/:id/read`, `POST /notifications/read-all`; Socket.IO events `notification`, `notification:count` | `src/modules/notifications/`, `src/realtime/socket.js`              | `tests/integration/notifications.test.js` |
-| US14 | AI task descriptions / summaries             | ⬜     | Phase 8                                                                                                                                      |                                                                     |                                           |
+| US14 | AI task descriptions / summaries             | ⏭️     | Skipped by decision (2026-11-23)                                                                                                             | –                                                                   | –                                         |
 
 ## Functional requirements
 
@@ -39,14 +39,44 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 | F9  | Assign tasks within a project           | ✅     | `assigneeId` on create/update; assignee must be a project member                                     |
 | F10 | Comments and attachments                | ✅     | `src/modules/comments/`, `src/modules/attachments/` (multer upload, type/size limits, safe download) |
 | F11 | Real-time updates and notifications     | ✅     | Socket.IO (`src/realtime/socket.js`) + stored notifications (`src/modules/notifications/`)           |
-| F12 | RESTful endpoints                       | 🟡     | Resource-oriented routes under `/api/v1`; grows each phase                                           |
+| F12 | RESTful endpoints                       | ✅     | Resource-oriented routes under `/api/v1`, correct verbs and status codes, OpenAPI at `/api/docs`     |
 | F13 | Validation and error handling           | ✅     | Zod + `validate()`, `ApiError`, `errorHandler.js` (applies to all)                                   |
 
 ## Submission guidelines
 
-| Item                          | Status | Where                                                     |
-| ----------------------------- | ------ | --------------------------------------------------------- |
-| Clear and concise README      | 🟡     | `README.md` (completed in Phase 9)                        |
-| Code organisation and styling | ✅     | module-per-feature layout, ESLint + Prettier, `CLAUDE.md` |
-| Comments and documentation    | ✅     | why-comments in code, `docs/`, Swagger UI at `/api/docs`  |
-| Clean, maintainable code      | ✅     | layered routes → controller → service, integration tests  |
+| Item                          | Status | Where                                                                                              |
+| ----------------------------- | ------ | -------------------------------------------------------------------------------------------------- |
+| Clear and concise README      | ✅     | `README.md`: features, Docker quick start, local setup, env vars, API overview, auth flow, testing |
+| Code organisation and styling | ✅     | module-per-feature layout, ESLint + Prettier, `CLAUDE.md`                                          |
+| Comments and documentation    | ✅     | why-comments in code, `docs/`, Swagger UI at `/api/docs`                                           |
+| Clean, maintainable code      | ✅     | layered routes → controller → service, integration tests                                           |
+
+## Non-functional and delivery
+
+| Item                        | Status | Where                                                                                   |
+| --------------------------- | ------ | --------------------------------------------------------------------------------------- |
+| Runs with Docker Compose    | ✅     | `Dockerfile` + `docker-compose.yml` (`db` + `api`); migrations applied on start         |
+| Automated tests             | ✅     | 74 tests (`npm test`): unit + integration against PostgreSQL, WebSocket included        |
+| End-to-end user-story check | ✅     | `npm run smoke` (`scripts/smoke-test.js`): 52 checks over HTTP + WebSocket, all passing |
+
+## Final end-to-end verification (2026-11-23)
+
+Run against the API **in its Docker container** (`docker compose up -d --build`, `NODE_ENV=production`)
+with `npm run smoke`: **52 of 52 checks passed**. Each story was exercised the way a client would,
+with two team members (Asha, Ben) and an outsider (Cara):
+
+| Story | What was checked                                                                                                                                |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| US1   | Register returns 201 and a token; duplicate email (any case) → 409; weak password → 400; no password hash in responses                          |
+| US2   | Wrong password → 401; login → 200 with httpOnly refresh cookie; no token → 401; refresh works; reused refresh token rejected                    |
+| US3   | View profile; update name and bio; change persists                                                                                              |
+| US4   | Create task with title, description, due date → 201; missing title → 400                                                                        |
+| US5   | `GET /tasks?assigneeId=me` returns exactly Ben's task, paginated                                                                                |
+| US6   | `status: COMPLETED` sets `completedAt`                                                                                                          |
+| US7   | Assign to a project member works; assigning to a non-member is rejected                                                                         |
+| US8   | `status=OPEN` and `status=COMPLETED` return the right tasks; unknown status → 400                                                               |
+| US9   | Search matches title and description (case-insensitive); never returns tasks the user can't see                                                 |
+| US10  | Comments by both members; upload, list and download a file (same bytes back); `.exe` → 415; outsider → 404                                      |
+| US11  | Create project (creator is owner); invite by email; invitee sees and accepts it; hidden from non-members until then                             |
+| US12  | Logout → 204; token stops working immediately; live socket is closed; other users unaffected                                                    |
+| US13  | Socket connects with the access token; live notifications for assignment, comment and completion; stored inbox with unread count; mark all read |
