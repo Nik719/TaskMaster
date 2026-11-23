@@ -46,6 +46,8 @@ src/
   realtime/         Socket.IO server and per-user rooms
   storage/          attachment file storage
   utils/            ApiError, response helpers, pagination, Prisma selects
+scripts/smoke-test.js   end-to-end check of every user story against a running server
+Dockerfile, docker-compose.yml   production image; PostgreSQL + API services
 ```
 
 Rules:
@@ -193,7 +195,24 @@ applies migrations once, truncates all tables before each test, and runs files s
 Socket.IO is tested end-to-end with `socket.io-client` against a server on a random port.
 The suite needs no network access.
 
-## 12. Known limits / next steps
+`npm run smoke` (`scripts/smoke-test.js`) complements the suite: it walks through every user
+story over real HTTP and WebSocket against a **running** server (by default the Docker
+container on port 4000), using fresh accounts each time, and prints one line per check.
+
+## 12. Deployment (Docker)
+
+`Dockerfile` builds a production image (`node:22-bookworm-slim`, production dependencies only,
+runs as the unprivileged `node` user, health check on `/api/v1/health`). On start it runs
+`prisma migrate deploy` and then the server, so a new image upgrades the schema by itself.
+`prisma` is a runtime dependency for that reason.
+
+`docker-compose.yml` runs two services: `db` (PostgreSQL 16, also creates `taskmaster_test`)
+and `api` (waits for a healthy `db`, reaches it by service name, stores uploads in the
+`uploads` volume). `docker compose up -d db` alone still supports running the API with
+`npm run dev`. `docker stop` sends SIGTERM, which the server handles by closing sockets and
+the database pool before exiting.
+
+## 13. Known limits / next steps
 
 - Rate-limit counters and Socket.IO rooms are in memory: one API instance. To scale out, add
   a Redis store for `express-rate-limit` and the Socket.IO Redis adapter.
