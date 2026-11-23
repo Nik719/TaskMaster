@@ -6,8 +6,21 @@ import { healthDocs } from '../modules/health/health.docs.js';
 import { authDocs } from '../modules/auth/auth.docs.js';
 import { usersDocs } from '../modules/users/users.docs.js';
 import { projectsDocs } from '../modules/projects/projects.docs.js';
+import { tasksDocs } from '../modules/tasks/tasks.docs.js';
+import { commentsDocs } from '../modules/comments/comments.docs.js';
+import { attachmentsDocs } from '../modules/attachments/attachments.docs.js';
+import { notificationsDocs } from '../modules/notifications/notifications.docs.js';
 
-const moduleDocs = [healthDocs, authDocs, usersDocs, projectsDocs];
+const moduleDocs = [
+  healthDocs,
+  authDocs,
+  usersDocs,
+  projectsDocs,
+  tasksDocs,
+  commentsDocs,
+  attachmentsDocs,
+  notificationsDocs,
+];
 
 const errorResponseSchema = {
   type: 'object',

@@ -2,6 +2,8 @@
 // A missing or malformed variable crashes the process immediately with a clear message,
 // instead of failing later in the middle of a request.
 import 'dotenv/config';
+import os from 'node:os';
+import path from 'node:path';
 import { z } from 'zod';
 
 const envSchema = z.object({
@@ -39,6 +41,12 @@ const envSchema = z.object({
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(7),
   // bcrypt cost factor. 12 is a sensible production value; tests drop to 4 for speed.
   BCRYPT_SALT_ROUNDS: z.coerce.number().int().min(4).max(15).default(12),
+
+  // ── Attachments ──
+  // Folder for uploaded files (relative paths resolve from the project root).
+  UPLOAD_DIR: z.string().min(1).default('uploads'),
+  // Largest accepted upload, in megabytes.
+  MAX_UPLOAD_MB: z.coerce.number().positive().max(100).default(10),
 });
 
 function loadEnv() {
@@ -68,6 +76,8 @@ function loadEnv() {
     env.DATABASE_URL = env.TEST_DATABASE_URL;
     // Hashing at full cost would make the auth tests needlessly slow.
     env.BCRYPT_SALT_ROUNDS = 4;
+    // Keep test uploads out of the real uploads folder.
+    env.UPLOAD_DIR = path.join(os.tmpdir(), 'taskmaster-test-uploads');
     // Keep test output readable. Set TEST_LOG_LEVEL=debug to see logs while debugging a test.
     const testLogLevel = envSchema.shape.LOG_LEVEL.safeParse(process.env.TEST_LOG_LEVEL);
     env.LOG_LEVEL =
@@ -76,6 +86,7 @@ function loadEnv() {
 
   return Object.freeze({
     ...env,
+    UPLOAD_DIR: path.resolve(env.UPLOAD_DIR),
     isProduction: env.NODE_ENV === 'production',
     isTest: env.NODE_ENV === 'test',
   });

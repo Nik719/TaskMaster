@@ -169,6 +169,7 @@ export const projectsDocs = {
         description: { type: 'string', nullable: true },
         owner: ref('UserSummary'),
         memberCount: { type: 'integer' },
+        taskCount: { type: 'integer' },
         myRole: { type: 'string', enum: ['OWNER', 'ADMIN', 'MEMBER'] },
         createdAt: { type: 'string', format: 'date-time' },
         updatedAt: { type: 'string', format: 'date-time' },

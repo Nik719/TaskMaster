@@ -3,7 +3,7 @@
 A REST API for team task management: projects, role-based membership, tasks, comments,
 attachments and real-time notifications. Built for the Airtribe Backend & System Design course.
 
-> **Status:** Phase 4 (projects/teams & invitations) complete. Features are added phase by phase. This README
+> **Status:** Phase 7 (real-time notifications) complete. Features are added phase by phase. This README
 > grows with them, and becomes the full reference in Phase 9.
 
 ## Tech stack
@@ -97,6 +97,8 @@ Then open:
 | `JWT_ACCESS_EXPIRES_IN`  | no        | `15m`                   | Access token lifetime                                        |
 | `REFRESH_TOKEN_TTL_DAYS` | no        | `7`                     | How long a login lasts without use                           |
 | `BCRYPT_SALT_ROUNDS`     | no        | `12`                    | bcrypt cost factor (tests use 4)                             |
+| `UPLOAD_DIR`             | no        | `uploads`               | Folder for uploaded attachments                              |
+| `MAX_UPLOAD_MB`          | no        | `10`                    | Largest accepted upload (MB)                                 |
 
 Variables are validated at startup. If one is missing or malformed, the app exits immediately and
 names the problem.
@@ -135,21 +137,73 @@ tests/
 
 ## Endpoints so far
 
-| Method | Path                        | Auth | What it does                                      |
-| ------ | --------------------------- | ---- | ------------------------------------------------- |
-| GET    | `/api/v1/health`            | –    | API + database status                             |
-| POST   | `/api/v1/auth/register`     | –    | Create an account and sign in                     |
-| POST   | `/api/v1/auth/login`        | –    | Sign in with email + password                     |
-| POST   | `/api/v1/auth/refresh`      | –    | New access token from the refresh token (rotated) |
-| POST   | `/api/v1/auth/logout`       | ✔    | End this session immediately                      |
-| POST   | `/api/v1/auth/logout-all`   | ✔    | End every session                                 |
-| GET    | `/api/v1/users/me`          | ✔    | View my profile                                   |
-| PATCH  | `/api/v1/users/me`          | ✔    | Update name, bio, avatar URL                      |
-| PATCH  | `/api/v1/users/me/password` | ✔    | Change password (signs out other devices)         |
+| Method           | Path                                                    | Auth | What it does                                     |
+| ---------------- | ------------------------------------------------------- | ---- | ------------------------------------------------ |
+| GET              | `/api/v1/health`                                        | –    | API + database status                            |
+| POST             | `/api/v1/auth/register`                                 | –    | Create an account and sign in                    |
+| POST             | `/api/v1/auth/login`                                    | –    | Sign in with email + password                    |
+| POST             | `/api/v1/auth/refresh`                                  | –    | New access token from the refresh token          |
+| POST             | `/api/v1/auth/logout`                                   | ✔    | End this session immediately                     |
+| POST             | `/api/v1/auth/logout-all`                               | ✔    | End every session                                |
+| GET / PATCH      | `/api/v1/users/me`                                      | ✔    | View / update my profile                         |
+| PATCH            | `/api/v1/users/me/password`                             | ✔    | Change password (signs out other devices)        |
+| POST / GET       | `/api/v1/projects`                                      | ✔    | Create a project (team) / list mine              |
+| GET/PATCH/DELETE | `/api/v1/projects/:projectId`                           | ✔    | View / edit (owner, admin) / delete (owner)      |
+| GET              | `/api/v1/projects/:projectId/members`                   | ✔    | Members and roles                                |
+| PATCH / DELETE   | `/api/v1/projects/:projectId/members/:userId`           | ✔    | Change role (owner) / remove, or leave           |
+| POST / GET       | `/api/v1/projects/:projectId/invitations`               | ✔    | Invite by email / list invitations               |
+| DELETE           | `/api/v1/projects/:projectId/invitations/:invitationId` | ✔    | Revoke a pending invitation                      |
+| GET              | `/api/v1/invitations`                                   | ✔    | Invitations addressed to me                      |
+| POST             | `/api/v1/invitations/:invitationId/accept`, `/decline`  | ✔    | Join the project / decline                       |
+| POST / GET       | `/api/v1/tasks`                                         | ✔    | Create a task / list, filter, search, sort       |
+| GET              | `/api/v1/tasks/:taskId`                                 | ✔    | View a task                                      |
+| PATCH            | `/api/v1/tasks/:taskId`                                 | ✔    | Edit, assign (`assigneeId`), complete (`status`) |
+| DELETE           | `/api/v1/tasks/:taskId`                                 | ✔    | Delete (creator, or project owner/admin)         |
+| GET / POST       | `/api/v1/tasks/:taskId/comments`                        | ✔    | List / add comments                              |
+| PATCH / DELETE   | `/api/v1/tasks/:taskId/comments/:commentId`             | ✔    | Edit own / delete (author, owner, admin)         |
+| GET / POST       | `/api/v1/tasks/:taskId/attachments`                     | ✔    | List / upload (multipart field `file`)           |
+| GET              | `/api/v1/tasks/:taskId/attachments/:id/download`        | ✔    | Download a file                                  |
+| DELETE           | `/api/v1/tasks/:taskId/attachments/:id`                 | ✔    | Delete (uploader, owner, admin)                  |
+| GET              | `/api/v1/notifications`                                 | ✔    | My notifications (`?unread=true`), `meta.unread` |
+| PATCH            | `/api/v1/notifications/:notificationId/read`            | ✔    | Mark one as read                                 |
+| POST             | `/api/v1/notifications/read-all`                        | ✔    | Mark all as read                                 |
 
-✔ = send `Authorization: Bearer <accessToken>`. Full request/response details are in Swagger UI
+✔ = send `Authorization: Bearer <accessToken>`.
+
+Task list examples:
+
+```
+GET /api/v1/tasks?assigneeId=me                     tasks assigned to me
+GET /api/v1/tasks?status=OPEN,IN_PROGRESS           not finished yet
+GET /api/v1/tasks?status=COMPLETED&projectId=<id>   finished tasks in one project
+GET /api/v1/tasks?q=invoice                         search title + description
+GET /api/v1/tasks?overdue=true&sortBy=dueDate&order=asc
+GET /api/v1/tasks?priority=HIGH,URGENT&page=2&limit=10
+```
+
+Filters: `projectId` (or `none`), `status`, `priority`, `assigneeId` (`me`, `none`, or an ID),
+`creatorId` (`me` or an ID), `dueFrom`, `dueTo`, `overdue`, `q`. Sorting: `sortBy` =
+`createdAt | updatedAt | dueDate | priority | title | status`, `order` = `asc | desc`. Full request/response details are in Swagger UI
 at `/api/docs`. How auth works (sessions, refresh rotation, immediate logout) is explained in
 [`docs/architecture.md`](docs/architecture.md#4-authentication).
+
+## Real-time notifications
+
+Notifications are saved in the database and pushed live over Socket.IO on the same port as
+the API. Connect with the access token you use for HTTP:
+
+```js
+import { io } from 'socket.io-client';
+
+const socket = io('http://localhost:4000', { auth: { token: accessToken } });
+socket.on('notification', (n) => console.log(n.title)); // e.g. 'Asha assigned you "Fix login bug"'
+socket.on('notification:count', ({ unread }) => updateBadge(unread));
+socket.on('connect_error', (err) => console.error(err.message)); // bad or expired token
+```
+
+You are notified when a task is assigned to you, when a task you created or are assigned to is
+updated, completed, commented on or gets a file, and when you are invited to a project. You are
+never notified about your own actions. Logging out disconnects that device's socket.
 
 ## Project documents
 

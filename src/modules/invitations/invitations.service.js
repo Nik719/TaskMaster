@@ -3,6 +3,7 @@ import { prisma } from '../../config/prisma.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { publicUserSelect } from '../../utils/serializers.js';
 import { MANAGER_ROLES, ROLES, requireRole } from '../projects/access.js';
+import * as taskEvents from '../notifications/taskEvents.js';
 
 const INVITATION_TTL_DAYS = 7;
 
@@ -49,6 +50,8 @@ export async function createInvitation(projectId, actorId, { email, role }) {
     },
     select: invitationSelect,
   });
+  // People without an account yet see the invitation via GET /invitations after signing up.
+  if (existingUser) await taskEvents.invited(actorId, existingUser.id, invitation);
   return { invitation, inviteeId: existingUser?.id ?? null };
 }
 

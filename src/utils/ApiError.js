@@ -39,6 +39,14 @@ export class ApiError extends Error {
     return new ApiError(404, 'NOT_FOUND', message);
   }
 
+  static payloadTooLarge(message = 'Payload too large') {
+    return new ApiError(413, 'PAYLOAD_TOO_LARGE', message);
+  }
+
+  static unsupportedMediaType(message = 'Unsupported file type') {
+    return new ApiError(415, 'UNSUPPORTED_FILE_TYPE', message);
+  }
+
   static tooManyRequests(message = 'Too many requests, please try again later') {
     return new ApiError(429, 'RATE_LIMITED', message);
   }

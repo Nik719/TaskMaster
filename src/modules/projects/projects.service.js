@@ -3,6 +3,7 @@ import { ApiError } from '../../utils/ApiError.js';
 import { publicUserSelect } from '../../utils/serializers.js';
 import { pageArgs, pageMeta } from '../../utils/pagination.js';
 import { MANAGER_ROLES, ROLES, requireMember, requireRole } from './access.js';
+import { removeFiles } from '../../storage/localStorage.js';
 
 const projectSelect = {
   id: true,
@@ -11,13 +12,13 @@ const projectSelect = {
   createdAt: true,
   updatedAt: true,
   owner: { select: publicUserSelect },
-  _count: { select: { members: true } },
+  _count: { select: { members: true, tasks: true } },
 };
 
 /** Flattens Prisma's _count into plain fields and adds the caller's role. */
 function present(project, myRole) {
   const { _count, ...rest } = project;
-  return { ...rest, memberCount: _count.members, myRole };
+  return { ...rest, memberCount: _count.members, taskCount: _count.tasks, myRole };
 }
 
 export async function createProject(userId, { name, description }) {
@@ -75,7 +76,12 @@ export async function updateProject(projectId, userId, changes) {
 /** Deletes the project with everything in it. */
 export async function deleteProject(projectId, userId) {
   await requireRole(projectId, userId, [ROLES.OWNER], 'delete the project');
+  const files = await prisma.attachment.findMany({
+    where: { task: { projectId } },
+    select: { storageKey: true },
+  });
   await prisma.project.delete({ where: { id: projectId } });
+  await removeFiles(files.map((f) => f.storageKey));
 }
 
 // ── Members ──
@@ -125,9 +131,17 @@ export async function removeMember(projectId, actorId, targetUserId) {
     if (!allowed) throw ApiError.forbidden('You cannot remove this member');
   }
 
-  await prisma.projectMember.delete({
-    where: { projectId_userId: { projectId, userId: targetUserId } },
-  });
+  // Tasks stay in the project, but assignments to the departed member are cleared so
+  // nothing stays assigned to someone who can no longer see it.
+  await prisma.$transaction([
+    prisma.task.updateMany({
+      where: { projectId, assigneeId: targetUserId },
+      data: { assigneeId: null },
+    }),
+    prisma.projectMember.delete({
+      where: { projectId_userId: { projectId, userId: targetUserId } },
+    }),
+  ]);
 }
 
 async function requireTarget(projectId, userId) {
