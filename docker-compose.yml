@@ -1,6 +1,10 @@
-# Local development infrastructure.
-# Phase 2: PostgreSQL only (the API runs on your machine with `npm run dev`).
-# Phase 9 adds a container for the API itself.
+# TaskMaster with Docker Compose.
+#
+#   docker compose up -d db      PostgreSQL only (run the API on your machine with `npm run dev`)
+#   docker compose up -d --build PostgreSQL + the API in a container on http://localhost:4000
+#
+# Both read settings from .env (copy .env.example). Inside Compose the API reaches the
+# database by its service name `db`, so DATABASE_URL is overridden below.
 services:
   db:
     image: postgres:16-alpine
@@ -21,5 +25,32 @@ services:
       timeout: 5s
       retries: 10
 
+  api:
+    build: .
+    image: taskmaster-api
+    container_name: taskmaster-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://taskmaster:taskmaster@db:5432/taskmaster
+      # Required: Compose stops with this message if .env doesn't set it.
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?Set JWT_ACCESS_SECRET in .env (copy .env.example)}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-7}
+      BCRYPT_SALT_ROUNDS: ${BCRYPT_SALT_ROUNDS:-12}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TRUST_PROXY: ${TRUST_PROXY:-0}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10}
+    ports:
+      - '${API_PORT:-4000}:4000'
+    volumes:
+      - uploads:/app/uploads
+
 volumes:
   pgdata:
+  uploads:

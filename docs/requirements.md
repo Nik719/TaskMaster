@@ -70,9 +70,8 @@ These are choices the brief leaves open. Each is deliberate; see `architecture.m
   than "wait for the JWT to expire". A "log out everywhere" endpoint is included.
 - **Notifications.** Stored in the database (so nothing is lost while offline) and pushed live
   over Socket.IO (WebSockets with automatic fallback).
-- **AI.** Provider is configurable (`AI_PROVIDER`): Anthropic Claude (default), OpenAI, or a
-  built-in offline `mock` used by the tests. Without a key, AI endpoints answer `503` and the
-  rest of the API is unaffected.
+- **AI (US14) is out of scope.** NIK decided on 2026-11-23 to skip the generative AI feature.
+  The design notes are kept in `architecture.md` §8 in case it is added later.
 - **Attachments** are stored on local disk (`UPLOAD_DIR`) with metadata in the database. The
   storage code is isolated so it can be swapped for S3-compatible storage later.
 
@@ -84,7 +83,7 @@ These are choices the brief leaves open. Each is deliberate; see `architecture.m
 | NF2  | All input validated (Zod); unknown fields stripped (mass-assignment protection)                   |
 | NF3  | One consistent JSON envelope for success and error responses                                      |
 | NF4  | No internal error details leak to clients; every request has an `X-Request-Id`                    |
-| NF5  | Rate limiting on auth and AI endpoints                                                            |
+| NF5  | Rate limiting on auth endpoints                                                                   |
 | NF6  | Security headers (helmet), CORS allowlist, request size limits, upload size/type caps             |
 | NF7  | Users can only see data from their own projects (no IDOR); unknown and forbidden look alike (404) |
 | NF8  | Automated tests against a real PostgreSQL database                                                |

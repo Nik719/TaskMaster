@@ -3,8 +3,22 @@
 A REST API for team task management: projects, role-based membership, tasks, comments,
 attachments and real-time notifications. Built for the Airtribe Backend & System Design course.
 
-> **Status:** Phase 7 (real-time notifications) complete. Features are added phase by phase. This README
-> grows with them, and becomes the full reference in Phase 9.
+> **Status:** complete. All 13 user stories are built and checked end to end
+> (see [`docs/requirements-checklist.md`](docs/requirements-checklist.md)). The optional generative
+> AI story (US14) was skipped by decision.
+
+## Features
+
+- **Accounts:** register, log in, profile and password change, secure logout (single device or all).
+  Passwords hashed with bcrypt; short-lived JWT access tokens plus rotating refresh tokens.
+- **Tasks:** title, description, due date, priority, status. Create, view, edit, delete, assign,
+  complete. Filter by status, priority, assignee, project and due date; search title and description;
+  sort and paginate.
+- **Teams:** projects with Owner / Admin / Member roles, email invitations, accept or decline.
+- **Collaboration:** comments and file attachments on tasks.
+- **Real-time notifications** over WebSockets (Socket.IO), plus a stored notifications inbox.
+- **Quality:** input validation on every endpoint, consistent error responses, OpenAPI docs
+  (Swagger UI), 74 automated tests and an end-to-end user-story check.
 
 ## Tech stack
 
@@ -21,7 +35,33 @@ attachments and real-time notifications. Built for the Airtribe Backend & System
 | Testing    | Vitest + Supertest, against a real PostgreSQL test database |
 | Tooling    | ESLint 9 (flat config), Prettier, Docker Compose            |
 
-## Getting started
+## Quick start with Docker (everything in containers)
+
+Needs only Docker Desktop.
+
+```bash
+cp .env.example .env          # Windows: copy .env.example .env
+docker compose up -d --build  # builds the API image, starts PostgreSQL + the API
+docker compose ps             # both should show "healthy" after ~20 seconds
+```
+
+The API is on <http://localhost:4000> (Swagger UI at <http://localhost:4000/api/docs>). It applies
+database migrations by itself on start. Uploaded files are kept in the `uploads` Docker volume.
+
+Check every user story end to end against it (needs `npm install` once on your machine):
+
+```bash
+npm run smoke
+```
+
+Useful commands: `docker compose logs -f api`, `docker compose down` (stop; data is kept),
+`docker compose down -v` (stop and delete the database and uploads).
+
+> Set a long random `JWT_ACCESS_SECRET` in `.env` before deploying anywhere real. The container
+> runs with `NODE_ENV=production`, so the refresh cookie is marked `Secure` (HTTPS only; browsers
+> still accept it on `http://localhost`).
+
+## Local development (API on your machine, database in Docker)
 
 ### Prerequisites
 
@@ -99,6 +139,7 @@ Then open:
 | `BCRYPT_SALT_ROUNDS`     | no        | `12`                    | bcrypt cost factor (tests use 4)                             |
 | `UPLOAD_DIR`             | no        | `uploads`               | Folder for uploaded attachments                              |
 | `MAX_UPLOAD_MB`          | no        | `10`                    | Largest accepted upload (MB)                                 |
+| `API_PORT`               | no        | `4000`                  | Docker Compose only: host port for the API container         |
 
 Variables are validated at startup. If one is missing or malformed, the app exits immediately and
 names the problem.
@@ -116,26 +157,35 @@ names the problem.
 | `npm run db:migrate`              | Create and apply migrations (development)    |
 | `npm run db:deploy`               | Apply existing migrations (production / CI)  |
 | `npm run db:studio`               | Browse the database in Prisma Studio         |
+| `npm run smoke`                   | Check every user story against a running API |
 
 ## Project structure
 
 ```
 src/
   config/        env validation, logger, Prisma client, OpenAPI spec
-  middleware/    request logging, validation, error handling, 404
-  modules/       one folder per feature: routes → controller → service (→ repository)
-  utils/         ApiError, response helpers
+  middleware/    auth, validation, rate limiting, uploads, request logging, errors, 404
+  modules/       one folder per feature (auth, users, projects, invitations, tasks,
+                 comments, attachments, notifications, health):
+                 routes → schemas → controller → service → docs
+  realtime/      Socket.IO server (per-user rooms, token auth)
+  storage/       attachment files on disk
+  utils/         ApiError, response helpers, pagination, Prisma selects
   routes.js      mounts every module under /api/v1
   app.js         builds the Express app (used by tests; never listens)
-  server.js      starts the HTTP server, graceful shutdown
+  server.js      starts HTTP + Socket.IO, graceful shutdown
 prisma/          schema and migrations
+scripts/         smoke-test.js: user-story check against a running API
 tests/
   unit/          fast tests, no database
-  integration/   HTTP tests with Supertest against the test database
+  integration/   HTTP and WebSocket tests against the test database
+  helpers/       test factories (users, projects)
   setup/         applies migrations to the test DB before the suite
+docker/          PostgreSQL init script (creates the test database)
+Dockerfile       production image for the API
 ```
 
-## Endpoints so far
+## API overview
 
 | Method           | Path                                                    | Auth | What it does                                     |
 | ---------------- | ------------------------------------------------------- | ---- | ------------------------------------------------ |
@@ -169,6 +219,21 @@ tests/
 | POST             | `/api/v1/notifications/read-all`                        | ✔    | Mark all as read                                 |
 
 ✔ = send `Authorization: Bearer <accessToken>`.
+
+### Authentication flow
+
+1. `POST /auth/register` or `POST /auth/login` returns an `accessToken` (valid 15 minutes) and a
+   `refreshToken` (also set as an httpOnly cookie for browsers).
+2. Send `Authorization: Bearer <accessToken>` on every request.
+3. When it expires (401), call `POST /auth/refresh` to get a new pair. Each refresh token works
+   once; reusing an old one signs that device out.
+4. `POST /auth/logout` ends the session at once: the access token stops working immediately.
+
+```bash
+curl -X POST http://localhost:4000/api/v1/auth/register -H "Content-Type: application/json" \
+  -d '{"name":"Asha","email":"asha@example.com","password":"Secret-pass1"}'
+curl http://localhost:4000/api/v1/tasks?assigneeId=me -H "Authorization: Bearer <accessToken>"
+```
 
 Task list examples:
 
@@ -204,6 +269,17 @@ socket.on('connect_error', (err) => console.error(err.message)); // bad or expir
 You are notified when a task is assigned to you, when a task you created or are assigned to is
 updated, completed, commented on or gets a file, and when you are invited to a project. You are
 never notified about your own actions. Logging out disconnects that device's socket.
+
+## Testing
+
+```bash
+npm test         # 74 unit + integration tests (needs the database from `docker compose up -d db`)
+npm run smoke    # every user story end to end against a running API (Docker or `npm run dev`)
+```
+
+`npm test` uses the separate `taskmaster_test` database and wipes it between tests, so it never
+touches your development data. `npm run smoke` registers fresh users on each run (it uses about
+half of the 20-per-15-minutes login/register limit, so run it at most twice in a row).
 
 ## Project documents
 
