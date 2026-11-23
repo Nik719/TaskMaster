@@ -3,7 +3,7 @@
 A REST API for team task management: projects, role-based membership, tasks, comments,
 attachments and real-time notifications. Built for the Airtribe Backend & System Design course.
 
-> **Status:** Phase 2 (project setup) complete. Features are added phase by phase. This README
+> **Status:** Phase 4 (projects/teams & invitations) complete. Features are added phase by phase. This README
 > grows with them, and becomes the full reference in Phase 9.
 
 ## Tech stack
@@ -67,7 +67,8 @@ which wipe it).
 npm run db:migrate
 ```
 
-(No tables exist yet; the first migration arrives in Phase 3.)
+This creates the tables and regenerates the Prisma client. Run it again whenever
+`prisma/schema.prisma` changes (`npm run db:migrate -- --name <change>` for a new migration).
 
 ### 5. Run the API
 
@@ -83,15 +84,19 @@ Then open:
 
 ## Environment variables
 
-| Variable            | Required  | Default                 | Description                                                  |
-| ------------------- | --------- | ----------------------- | ------------------------------------------------------------ |
-| `NODE_ENV`          | no        | `development`           | `development`, `test` or `production`                        |
-| `PORT`              | no        | `4000`                  | HTTP port                                                    |
-| `DATABASE_URL`      | **yes**   | –                       | PostgreSQL connection string                                 |
-| `TEST_DATABASE_URL` | for tests | –                       | A **separate** database used by `npm test`                   |
-| `CORS_ORIGINS`      | no        | `http://localhost:3000` | Comma-separated list of allowed browser origins              |
-| `LOG_LEVEL`         | no        | `info`                  | `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` |
-| `TRUST_PROXY`       | no        | `0`                     | Number of reverse proxies in front of the API                |
+| Variable                 | Required  | Default                 | Description                                                  |
+| ------------------------ | --------- | ----------------------- | ------------------------------------------------------------ |
+| `NODE_ENV`               | no        | `development`           | `development`, `test` or `production`                        |
+| `PORT`                   | no        | `4000`                  | HTTP port                                                    |
+| `DATABASE_URL`           | **yes**   | –                       | PostgreSQL connection string                                 |
+| `TEST_DATABASE_URL`      | for tests | –                       | A **separate** database used by `npm test`                   |
+| `CORS_ORIGINS`           | no        | `http://localhost:3000` | Comma-separated list of allowed browser origins              |
+| `LOG_LEVEL`              | no        | `info`                  | `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` |
+| `TRUST_PROXY`            | no        | `0`                     | Number of reverse proxies in front of the API                |
+| `JWT_ACCESS_SECRET`      | **yes**   | –                       | Signs access tokens; at least 32 random characters           |
+| `JWT_ACCESS_EXPIRES_IN`  | no        | `15m`                   | Access token lifetime                                        |
+| `REFRESH_TOKEN_TTL_DAYS` | no        | `7`                     | How long a login lasts without use                           |
+| `BCRYPT_SALT_ROUNDS`     | no        | `12`                    | bcrypt cost factor (tests use 4)                             |
 
 Variables are validated at startup. If one is missing or malformed, the app exits immediately and
 names the problem.
@@ -127,6 +132,31 @@ tests/
   integration/   HTTP tests with Supertest against the test database
   setup/         applies migrations to the test DB before the suite
 ```
+
+## Endpoints so far
+
+| Method | Path                        | Auth | What it does                                      |
+| ------ | --------------------------- | ---- | ------------------------------------------------- |
+| GET    | `/api/v1/health`            | –    | API + database status                             |
+| POST   | `/api/v1/auth/register`     | –    | Create an account and sign in                     |
+| POST   | `/api/v1/auth/login`        | –    | Sign in with email + password                     |
+| POST   | `/api/v1/auth/refresh`      | –    | New access token from the refresh token (rotated) |
+| POST   | `/api/v1/auth/logout`       | ✔    | End this session immediately                      |
+| POST   | `/api/v1/auth/logout-all`   | ✔    | End every session                                 |
+| GET    | `/api/v1/users/me`          | ✔    | View my profile                                   |
+| PATCH  | `/api/v1/users/me`          | ✔    | Update name, bio, avatar URL                      |
+| PATCH  | `/api/v1/users/me/password` | ✔    | Change password (signs out other devices)         |
+
+✔ = send `Authorization: Bearer <accessToken>`. Full request/response details are in Swagger UI
+at `/api/docs`. How auth works (sessions, refresh rotation, immediate logout) is explained in
+[`docs/architecture.md`](docs/architecture.md#4-authentication).
+
+## Project documents
+
+- [`docs/requirements.md`](docs/requirements.md): the brief, user stories and scope decisions
+- [`docs/architecture.md`](docs/architecture.md): design, data model, auth, permissions
+- [`docs/requirements-checklist.md`](docs/requirements-checklist.md): status of every requirement and user story
+- [`CLAUDE.md`](CLAUDE.md): conventions and commands for AI coding assistants
 
 ## API conventions
 

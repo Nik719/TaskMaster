@@ -3,8 +3,11 @@
 // generated from JSDoc comments: it's explicit, needs no extra library, and a typo is a
 // normal JS error rather than a silently missing endpoint.
 import { healthDocs } from '../modules/health/health.docs.js';
+import { authDocs } from '../modules/auth/auth.docs.js';
+import { usersDocs } from '../modules/users/users.docs.js';
+import { projectsDocs } from '../modules/projects/projects.docs.js';
 
-const moduleDocs = [healthDocs];
+const moduleDocs = [healthDocs, authDocs, usersDocs, projectsDocs];
 
 const errorResponseSchema = {
   type: 'object',
@@ -19,6 +22,16 @@ const errorResponseSchema = {
       },
       required: ['code', 'message'],
     },
+  },
+};
+
+const paginationMetaSchema = {
+  type: 'object',
+  properties: {
+    page: { type: 'integer', example: 1 },
+    limit: { type: 'integer', example: 20 },
+    total: { type: 'integer', example: 57 },
+    totalPages: { type: 'integer', example: 3 },
   },
 };
 
@@ -40,7 +53,7 @@ export function buildOpenApiSpec() {
         bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
       },
       schemas: Object.assign(
-        { ErrorResponse: errorResponseSchema },
+        { ErrorResponse: errorResponseSchema, PaginationMeta: paginationMetaSchema },
         ...moduleDocs.map((doc) => doc.schemas ?? {}),
       ),
     },

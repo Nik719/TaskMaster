@@ -1,0 +1,212 @@
+# TaskMaster – Architecture
+
+> This is the design for the whole project. Features land phase by phase; see
+> `docs/requirements-checklist.md` (added as phases complete) for what is built so far.
+
+## 1. Overview
+
+```
+ Client (web / mobile / Postman)
+   │  HTTPS: REST + JSON            WebSocket (Socket.IO)
+   ▼                                   ▼
+ ┌───────────────────────────────────────────────────────────┐
+ │ Express 5 app (src/app.js)                                │
+ │  requestLogger → helmet → CORS → json/cookies → /api/v1   │
+ │  ┌──────────── modules/<feature> ─────────────┐           │
+ │  │ routes → validate(Zod) → authenticate      │           │
+ │  │        → controller → service → Prisma     │           │
+ │  └────────────────────────────────────────────┘           │
+ │  notFound → errorHandler (single place for error JSON)    │
+ │                                                           │
+ │  realtime/socket.js  ◄── notifications.service (emit)     │
+ │  ai/ provider (anthropic | openai | mock)                 │
+ │  storage/ local disk (attachments)                        │
+ └───────────────────────────────────────────────────────────┘
+   │ Prisma 7 + pg adapter
+   ▼
+ PostgreSQL 16 (Docker Compose)
+```
+
+One process serves both the REST API and Socket.IO on the same port.
+
+## 2. Code layout and layering
+
+```
+src/
+  app.js            builds the Express app (no listen; tests import it)
+  server.js         HTTP server + Socket.IO, graceful shutdown
+  routes.js         mounts every module under /api/v1
+  config/           env (validated), logger, prisma client, OpenAPI
+  middleware/       requestLogger, validate, authenticate, rateLimit, upload, errorHandler, notFound
+  modules/<name>/   one folder per feature
+     <name>.routes.js      HTTP verbs + paths, middleware chain. No logic.
+     <name>.schemas.js     Zod schemas for params / query / body
+     <name>.controller.js  reads req.validated + req.user, calls the service, sends the response
+     <name>.service.js     business rules, permissions, database access
+     <name>.docs.js        OpenAPI description of the module
+  realtime/         Socket.IO server and per-user rooms
+  ai/               AI provider abstraction
+  storage/          attachment file storage
+  utils/            ApiError, response helpers, pagination, Prisma selects
+```
+
+Rules:
+
+- **Controllers never touch Prisma; routes never contain logic.** Services are plain async
+  functions that take IDs and validated input, so they are easy to test and reuse (the
+  Socket.IO handshake reuses the auth service, task creation reuses the AI service).
+- **Errors are thrown, not returned.** Services throw `ApiError`; Express 5 forwards rejected
+  promises to `errorHandler`, which is the only place that formats error responses.
+- **Validated input only.** Controllers read `req.validated.{params,query,body}`, never the
+  raw request. Zod strips unknown keys, so a client can't set `role` or `creatorId`.
+- **Explicit `select`s.** Responses are built from the `select` shapes in
+  `utils/serializers.js`, so new sensitive columns can never leak by accident.
+
+## 3. Data model
+
+```mermaid
+erDiagram
+  User ||--o{ Session : "signs in on"
+  User ||--o{ ProjectMember : "belongs to"
+  Project ||--o{ ProjectMember : has
+  Project ||--o{ ProjectInvitation : has
+  Project ||--o{ Task : contains
+  User ||--o{ Task : "creates"
+  User ||--o{ Task : "is assigned"
+  Task ||--o{ Comment : has
+  Task ||--o{ Attachment : has
+  User ||--o{ Comment : writes
+  User ||--o{ Attachment : uploads
+  User ||--o{ Notification : receives
+```
+
+| Table                 | Key columns                                                                                                                                  | Notes                                      |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `users`               | id, email (unique, lower-case), passwordHash, name, bio, avatarUrl                                                                           |                                            |
+| `sessions`            | id, userId, refreshTokenHash, expiresAt, revokedAt, userAgent, ip                                                                            | one per signed-in device                   |
+| `projects`            | id, name, description, ownerId                                                                                                               | a project is a team                        |
+| `project_members`     | (projectId, userId) PK, role `OWNER/ADMIN/MEMBER`, joinedAt                                                                                  |                                            |
+| `project_invitations` | id, projectId, email, invitedById, status `PENDING/ACCEPTED/DECLINED/REVOKED`, expiresAt                                                     | unique pending invite per (project, email) |
+| `tasks`               | id, title, description, status `OPEN/IN_PROGRESS/COMPLETED`, priority `LOW…URGENT`, dueDate, completedAt, projectId?, creatorId, assigneeId? | indexes for the common filters             |
+| `comments`            | id, taskId, authorId, body, editedAt                                                                                                         |                                            |
+| `attachments`         | id, taskId, uploaderId, originalName, storageKey, mimeType, size                                                                             | file bytes live in `UPLOAD_DIR`            |
+| `notifications`       | id, userId, actorId?, type, title, body, taskId?, projectId?, readAt                                                                         |                                            |
+
+Deletes: deleting a project deletes its tasks, members and invitations; deleting a task deletes
+its comments, attachments (rows and files) and notifications. Deleting a user is not exposed.
+
+## 4. Authentication
+
+- **Passwords**: bcrypt (cost 12 in production). Login compares against a dummy hash when the
+  email is unknown so timing doesn't reveal which emails exist; both cases return the same 401.
+- **Access token**: HS256 JWT, 15 min, `{ sub: userId, sid: sessionId }`, algorithm pinned.
+- **Session check**: `authenticate` verifies the JWT _and_ looks up the session row. This one
+  indexed query is what makes **logout immediate** (US12) and lets "change password" sign out
+  other devices.
+- **Refresh token**: `<sessionId>.<random 48 bytes>` in an `httpOnly`, `SameSite=Strict`
+  cookie scoped to `/api/v1/auth` (also returned in the body for non-browser clients). Only a
+  SHA-256 hash is stored. It is **rotated** on every refresh; replaying an old one revokes the
+  session (reuse detection). Rotation is an atomic compare-and-swap on the old hash.
+
+```
+register/login ──► session row + access JWT + refresh cookie
+API call ── Bearer JWT ──► authenticate: verify JWT → session active? → req.user
+JWT expired ──► POST /auth/refresh (cookie) ──► new JWT + rotated refresh token
+logout ──► session.revokedAt = now ──► that JWT and refresh token stop working at once
+```
+
+## 5. Authorisation
+
+Access is decided in the services from project membership:
+
+| Action                                  | Who                                           |
+| --------------------------------------- | --------------------------------------------- |
+| View project, members, tasks, comments  | any member                                    |
+| Update project                          | OWNER, ADMIN                                  |
+| Delete project                          | OWNER                                         |
+| Invite / revoke invitation              | OWNER, ADMIN                                  |
+| Change a member's role                  | OWNER                                         |
+| Remove a member                         | OWNER (anyone but self); ADMIN (only MEMBERs) |
+| Leave a project                         | any member except the OWNER                   |
+| Create / update a task, comment, upload | any member                                    |
+| Delete a task                           | its creator, OWNER, ADMIN                     |
+| Edit a comment                          | its author                                    |
+| Delete a comment / attachment           | its author/uploader, OWNER, ADMIN             |
+| Personal task (no project)              | only its creator                              |
+
+Something a user is not allowed to _see_ returns **404**, not 403, so IDs of other teams'
+data can't be probed. 403 is used only when the user can see the resource but lacks the role
+for the action.
+
+## 6. Tasks: filtering, sorting, search, pagination
+
+`GET /tasks` returns the tasks visible to the user (their projects + their personal tasks):
+
+- Filters: `projectId`, `status` (comma list), `priority` (comma list), `assigneeId`
+  (`me`, `none` or a UUID), `creatorId` (`me` or UUID), `dueFrom`, `dueTo`, `overdue=true`.
+- Search: `q` matches title **or** description, case-insensitive (`ILIKE`).
+- Sorting: `sortBy` = `createdAt | updatedAt | dueDate | priority | title | status`,
+  `order` = `asc | desc`; `id` is always added as a tie-breaker so pages are stable.
+- Pagination: `page`, `limit` (max 100). `meta` carries `total` and `totalPages`.
+
+Setting `status: COMPLETED` stamps `completedAt`; moving away from it clears it.
+
+## 7. Real-time notifications
+
+- Every notification is **written to the database first**, then **pushed** with Socket.IO to
+  the room `user:<id>`. Offline users read them later from `GET /notifications`.
+- The Socket.IO handshake authenticates with the same access token
+  (`io(url, { auth: { token } })`) and the same session check as HTTP.
+- Events: `notification` (new notification object), `notification:count` (unread count).
+- Triggers: task assigned to you, task you created/are assigned to updated or completed,
+  new comment on such a task, attachment added, invitation to a project. The person who
+  made the change is never notified about their own action.
+
+## 8. Generative AI
+
+`src/ai/` exposes `generateTaskDescription()` and `summarizeTask()`; the provider is chosen
+by `AI_PROVIDER`:
+
+| Provider    | Library                             | Default model                            |
+| ----------- | ----------------------------------- | ---------------------------------------- |
+| `anthropic` | `@anthropic-ai/sdk` (default)       | `claude-opus-5-5` (override: `AI_MODEL`) |
+| `openai`    | `fetch` to the Chat Completions API | `AI_MODEL` (default `gpt-4o-mini`)       |
+| `mock`      | none, deterministic text            | used by tests and offline dev            |
+
+User text is passed as data inside delimited tags, never concatenated into the instructions.
+Output length is capped, the endpoints are rate-limited, and provider errors map to
+`502 AI_PROVIDER_ERROR`; a missing key maps to `503 AI_NOT_CONFIGURED`.
+
+## 9. Attachments
+
+`multer` streams the upload to `UPLOAD_DIR` under a random name (`<uuid><ext>`); the original
+name is kept only as metadata. Size is capped by `MAX_UPLOAD_MB`, and MIME types are limited
+to an allowlist (images, PDF, text/CSV/Markdown, Office documents, ZIP). Downloads go through
+an authenticated endpoint with `Content-Disposition: attachment` and `nosniff`, so an
+uploaded file can never run as a page on the API's origin.
+
+## 10. Errors and responses
+
+```jsonc
+{ "success": true, "data": {}, "meta": { "page": 1, "limit": 20, "total": 3, "totalPages": 1 } }
+{ "success": false, "error": { "code": "VALIDATION_ERROR", "message": "…", "details": [] } }
+```
+
+Error codes: `VALIDATION_ERROR`, `INVALID_JSON`, `UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`,
+`CONFLICT`, `RATE_LIMITED`, `PAYLOAD_TOO_LARGE`, `UNSUPPORTED_FILE_TYPE`, `AI_NOT_CONFIGURED`,
+`AI_PROVIDER_ERROR`, `INTERNAL_ERROR`.
+
+## 11. Testing
+
+Vitest + Supertest against a real PostgreSQL test database (`TEST_DATABASE_URL`). The suite
+applies migrations once, truncates all tables before each test, and runs files serially.
+Socket.IO is tested end-to-end with `socket.io-client` against a server on a random port.
+AI tests use the `mock` provider, so the suite needs no network or API key.
+
+## 12. Known limits / next steps
+
+- Rate-limit counters and Socket.IO rooms are in memory: one API instance. To scale out, add
+  a Redis store for `express-rate-limit` and the Socket.IO Redis adapter.
+- Search uses `ILIKE`; for large data add a `pg_trgm` GIN index or Postgres full-text search.
+- Attachments use local disk; swap `src/storage` for S3-compatible storage in production.
+- Invitations are in-app; sending emails needs an SMTP/email provider.

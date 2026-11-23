@@ -1,5 +1,9 @@
-// TaskMaster database schema.
-// Models are added in Phase 3 (first migration), following the design agreed in Phase 1.
+// TaskMaster database schema (PostgreSQL via Prisma 7).
+//
+// Conventions:
+// - UUID primary keys, so IDs can't be guessed or enumerated.
+// - Table names are snake_case plurals (@@map); fields stay camelCase in JS.
+// - Every foreign key states its onDelete behaviour explicitly.
 
 generator client {
   // "prisma-client-js" generates plain JavaScript into node_modules/@prisma/client.
@@ -10,4 +14,119 @@ generator client {
 datasource db {
   provider = "postgresql"
   // The connection URL lives in prisma.config.js (Prisma 7+), not here.
+}
+
+// ─────────────────────────────────────────────────────────────
+// Users & authentication
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique // always stored lower-cased (see auth.schemas.js)
+  passwordHash String
+  name         String   @db.VarChar(100)
+  bio          String?  @db.VarChar(500)
+  avatarUrl    String?  @db.VarChar(2048)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions        Session[]
+  ownedProjects   Project[]           @relation("ProjectOwner")
+  memberships     ProjectMember[]
+  sentInvitations ProjectInvitation[] @relation("InvitedBy")
+
+  @@map("users")
+}
+
+// One row per signed-in device. The access token (JWT) carries the session ID, and the
+// auth middleware checks that the session is still active, so logout takes effect
+// immediately instead of waiting for the JWT to expire.
+model Session {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @db.Uuid
+  // SHA-256 of the current refresh token secret. The raw secret only ever lives in the
+  // client's httpOnly cookie, so a database leak doesn't leak usable tokens.
+  refreshTokenHash String
+  userAgent        String?   @db.VarChar(512)
+  ip               String?   @db.VarChar(64)
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  lastUsedAt       DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Projects (teams), membership and invitations
+// ─────────────────────────────────────────────────────────────
+
+enum ProjectRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+// A project is a team: a group of members working on a shared set of tasks.
+model Project {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(120)
+  description String?  @db.VarChar(2000)
+  ownerId     String   @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Restrict: the owner can't be deleted while they still own projects.
+  owner       User                @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  members     ProjectMember[]
+  invitations ProjectInvitation[]
+
+  @@index([ownerId])
+  @@map("projects")
+}
+
+model ProjectMember {
+  projectId String      @db.Uuid
+  userId    String      @db.Uuid
+  role      ProjectRole @default(MEMBER)
+  joinedAt  DateTime    @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // The composite key doubles as the index for "is this user a member of this project?",
+  // the check behind almost every request.
+  @@id([projectId, userId])
+  @@index([userId])
+  @@map("project_members")
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  REVOKED
+}
+
+// Invitations are addressed to an email, so people can be invited before they sign up.
+model ProjectInvitation {
+  id          String           @id @default(uuid()) @db.Uuid
+  projectId   String           @db.Uuid
+  email       String
+  invitedById String           @db.Uuid
+  role        ProjectRole      @default(MEMBER)
+  status      InvitationStatus @default(PENDING)
+  expiresAt   DateTime
+  respondedAt DateTime?
+  createdAt   DateTime         @default(now())
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  invitedBy User    @relation("InvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([email, status])
+  @@index([projectId, status])
+  @@map("project_invitations")
 }
