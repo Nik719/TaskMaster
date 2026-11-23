@@ -5,8 +5,9 @@
 import { healthDocs } from '../modules/health/health.docs.js';
 import { authDocs } from '../modules/auth/auth.docs.js';
 import { usersDocs } from '../modules/users/users.docs.js';
+import { projectsDocs } from '../modules/projects/projects.docs.js';
 
-const moduleDocs = [healthDocs, authDocs, usersDocs];
+const moduleDocs = [healthDocs, authDocs, usersDocs, projectsDocs];
 
 const errorResponseSchema = {
   type: 'object',

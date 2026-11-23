@@ -30,7 +30,10 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  sessions Session[]
+  sessions        Session[]
+  ownedProjects   Project[]           @relation("ProjectOwner")
+  memberships     ProjectMember[]
+  sentInvitations ProjectInvitation[] @relation("InvitedBy")
 
   @@map("users")
 }
@@ -55,4 +58,75 @@ model Session {
 
   @@index([userId])
   @@map("sessions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Projects (teams), membership and invitations
+// ─────────────────────────────────────────────────────────────
+
+enum ProjectRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+// A project is a team: a group of members working on a shared set of tasks.
+model Project {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(120)
+  description String?  @db.VarChar(2000)
+  ownerId     String   @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Restrict: the owner can't be deleted while they still own projects.
+  owner       User                @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  members     ProjectMember[]
+  invitations ProjectInvitation[]
+
+  @@index([ownerId])
+  @@map("projects")
+}
+
+model ProjectMember {
+  projectId String      @db.Uuid
+  userId    String      @db.Uuid
+  role      ProjectRole @default(MEMBER)
+  joinedAt  DateTime    @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // The composite key doubles as the index for "is this user a member of this project?",
+  // the check behind almost every request.
+  @@id([projectId, userId])
+  @@index([userId])
+  @@map("project_members")
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  REVOKED
+}
+
+// Invitations are addressed to an email, so people can be invited before they sign up.
+model ProjectInvitation {
+  id          String           @id @default(uuid()) @db.Uuid
+  projectId   String           @db.Uuid
+  email       String
+  invitedById String           @db.Uuid
+  role        ProjectRole      @default(MEMBER)
+  status      InvitationStatus @default(PENDING)
+  expiresAt   DateTime
+  respondedAt DateTime?
+  createdAt   DateTime         @default(now())
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  invitedBy User    @relation("InvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([email, status])
+  @@index([projectId, status])
+  @@map("project_invitations")
 }

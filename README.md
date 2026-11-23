@@ -3,7 +3,7 @@
 A REST API for team task management: projects, role-based membership, tasks, comments,
 attachments and real-time notifications. Built for the Airtribe Backend & System Design course.
 
-> **Status:** Phase 3 (users & authentication) complete. Features are added phase by phase. This README
+> **Status:** Phase 4 (projects/teams & invitations) complete. Features are added phase by phase. This README
 > grows with them, and becomes the full reference in Phase 9.
 
 ## Tech stack
@@ -155,6 +155,7 @@ at `/api/docs`. How auth works (sessions, refresh rotation, immediate logout) is
 
 - [`docs/requirements.md`](docs/requirements.md): the brief, user stories and scope decisions
 - [`docs/architecture.md`](docs/architecture.md): design, data model, auth, permissions
+- [`docs/requirements-checklist.md`](docs/requirements-checklist.md): status of every requirement and user story
 - [`CLAUDE.md`](CLAUDE.md): conventions and commands for AI coding assistants
 
 ## API conventions
