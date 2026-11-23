@@ -23,10 +23,3 @@ export const authLimiter = limiter({
   limit: 20,
   message: 'Too many authentication attempts. Please wait 15 minutes and try again.',
 });
-
-/** AI endpoints: each call costs money with the configured provider. */
-export const aiLimiter = limiter({
-  windowMs: 60 * 1000,
-  limit: 10,
-  message: 'Too many AI requests. Please wait a minute and try again.',
-});

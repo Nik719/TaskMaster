@@ -1,7 +1,7 @@
 {
   "name": "taskmaster",
   "version": "1.0.0",
-  "description": "TaskMaster \u2013 a collaborative task tracking REST API (Node.js, Express, PostgreSQL, Prisma)",
+  "description": "TaskMaster – a collaborative task tracking REST API (Node.js, Express, PostgreSQL, Prisma)",
   "main": "src/server.js",
   "scripts": {
     "dev": "node --watch src/server.js",
@@ -21,7 +21,6 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/sdk": "1.12.0",
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",
     "bcryptjs": "3.0.3",

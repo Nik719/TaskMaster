@@ -3,7 +3,7 @@
 Status of every requirement in [`requirements.md`](requirements.md), with where it is
 implemented and the test that proves it. Updated at the end of each phase.
 
-Legend: ✅ done · 🟡 partly done · ⬜ not started
+Legend: ✅ done · 🟡 partly done · ⬜ not started · ⏭️ skipped by decision
 
 ## User stories
 
@@ -22,7 +22,7 @@ Legend: ✅ done · 🟡 partly done · ⬜ not started
 | US11 | Create a team/project and invite members     | ✅     | `POST /projects`, `POST /projects/:id/invitations`, `POST /invitations/:id/accept`                                                           | `src/modules/projects/`, `src/modules/invitations/`                 | `tests/integration/projects.test.js`      |
 | US12 | Log out securely                             | ✅     | `POST /auth/logout`, `POST /auth/logout-all`                                                                                                 | `src/modules/auth/`, `src/middleware/authenticate.js`               | `tests/integration/auth.test.js`          |
 | US13 | Real-time notifications                      | ✅     | `GET /notifications`, `PATCH /notifications/:id/read`, `POST /notifications/read-all`; Socket.IO events `notification`, `notification:count` | `src/modules/notifications/`, `src/realtime/socket.js`              | `tests/integration/notifications.test.js` |
-| US14 | AI task descriptions / summaries             | ⬜     | Phase 8                                                                                                                                      |                                                                     |                                           |
+| US14 | AI task descriptions / summaries             | ⏭️     | Skipped by decision (2026-11-23)                                                                                                             | –                                                                   | –                                         |
 
 ## Functional requirements
 

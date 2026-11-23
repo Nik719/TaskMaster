@@ -19,7 +19,6 @@
  │  notFound → errorHandler (single place for error JSON)    │
  │                                                           │
  │  realtime/socket.js  ◄── notifications.service (emit)     │
- │  ai/ provider (anthropic | openai | mock)                 │
  │  storage/ local disk (attachments)                        │
  └───────────────────────────────────────────────────────────┘
    │ Prisma 7 + pg adapter
@@ -45,7 +44,6 @@ src/
      <name>.service.js     business rules, permissions, database access
      <name>.docs.js        OpenAPI description of the module
   realtime/         Socket.IO server and per-user rooms
-  ai/               AI provider abstraction
   storage/          attachment file storage
   utils/            ApiError, response helpers, pagination, Prisma selects
 ```
@@ -54,7 +52,7 @@ Rules:
 
 - **Controllers never touch Prisma; routes never contain logic.** Services are plain async
   functions that take IDs and validated input, so they are easy to test and reuse (the
-  Socket.IO handshake reuses the auth service, task creation reuses the AI service).
+  Socket.IO handshake reuses the auth service).
 - **Errors are thrown, not returned.** Services throw `ApiError`; Express 5 forwards rejected
   promises to `errorHandler`, which is the only place that formats error responses.
 - **Validated input only.** Controllers read `req.validated.{params,query,body}`, never the
@@ -162,20 +160,13 @@ Setting `status: COMPLETED` stamps `completedAt`; moving away from it clears it.
   new comment on such a task, attachment added, invitation to a project. The person who
   made the change is never notified about their own action.
 
-## 8. Generative AI
+## 8. Generative AI (not built)
 
-`src/ai/` exposes `generateTaskDescription()` and `summarizeTask()`; the provider is chosen
-by `AI_PROVIDER`:
-
-| Provider    | Library                             | Default model                            |
-| ----------- | ----------------------------------- | ---------------------------------------- |
-| `anthropic` | `@anthropic-ai/sdk` (default)       | `claude-opus-5-5` (override: `AI_MODEL`) |
-| `openai`    | `fetch` to the Chat Completions API | `AI_MODEL` (default `gpt-4o-mini`)       |
-| `mock`      | none, deterministic text            | used by tests and offline dev            |
-
-User text is passed as data inside delimited tags, never concatenated into the instructions.
-Output length is capped, the endpoints are rate-limited, and provider errors map to
-`502 AI_PROVIDER_ERROR`; a missing key maps to `503 AI_NOT_CONFIGURED`.
+US14 was **skipped by decision** (NIK, 2026-11-23). If it is added later, the intended design
+is: a small `src/ai/` service with interchangeable providers chosen by an `AI_PROVIDER` env var
+(Anthropic Claude by default, OpenAI, and an offline `mock` for tests), endpoints
+`POST /ai/task-description` and `POST /ai/tasks/:taskId/summary`, user text passed to the model
+as escaped, tagged data, and its own rate limit.
 
 ## 9. Attachments
 
@@ -193,15 +184,14 @@ uploaded file can never run as a page on the API's origin.
 ```
 
 Error codes: `VALIDATION_ERROR`, `INVALID_JSON`, `UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`,
-`CONFLICT`, `RATE_LIMITED`, `PAYLOAD_TOO_LARGE`, `UNSUPPORTED_FILE_TYPE`, `AI_NOT_CONFIGURED`,
-`AI_PROVIDER_ERROR`, `INTERNAL_ERROR`.
+`CONFLICT`, `RATE_LIMITED`, `PAYLOAD_TOO_LARGE`, `UNSUPPORTED_FILE_TYPE`, `INTERNAL_ERROR`.
 
 ## 11. Testing
 
 Vitest + Supertest against a real PostgreSQL test database (`TEST_DATABASE_URL`). The suite
 applies migrations once, truncates all tables before each test, and runs files serially.
 Socket.IO is tested end-to-end with `socket.io-client` against a server on a random port.
-AI tests use the `mock` provider, so the suite needs no network or API key.
+The suite needs no network access.
 
 ## 12. Known limits / next steps
 
