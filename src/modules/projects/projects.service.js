@@ -11,13 +11,13 @@ const projectSelect = {
   createdAt: true,
   updatedAt: true,
   owner: { select: publicUserSelect },
-  _count: { select: { members: true } },
+  _count: { select: { members: true, tasks: true } },
 };
 
 /** Flattens Prisma's _count into plain fields and adds the caller's role. */
 function present(project, myRole) {
   const { _count, ...rest } = project;
-  return { ...rest, memberCount: _count.members, myRole };
+  return { ...rest, memberCount: _count.members, taskCount: _count.tasks, myRole };
 }
 
 export async function createProject(userId, { name, description }) {
@@ -125,9 +125,17 @@ export async function removeMember(projectId, actorId, targetUserId) {
     if (!allowed) throw ApiError.forbidden('You cannot remove this member');
   }
 
-  await prisma.projectMember.delete({
-    where: { projectId_userId: { projectId, userId: targetUserId } },
-  });
+  // Tasks stay in the project, but assignments to the departed member are cleared so
+  // nothing stays assigned to someone who can no longer see it.
+  await prisma.$transaction([
+    prisma.task.updateMany({
+      where: { projectId, assigneeId: targetUserId },
+      data: { assigneeId: null },
+    }),
+    prisma.projectMember.delete({
+      where: { projectId_userId: { projectId, userId: targetUserId } },
+    }),
+  ]);
 }
 
 async function requireTarget(projectId, userId) {

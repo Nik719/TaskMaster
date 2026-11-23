@@ -5,6 +5,7 @@ import { authRouter } from './modules/auth/auth.routes.js';
 import { usersRouter } from './modules/users/users.routes.js';
 import { projectsRouter } from './modules/projects/projects.routes.js';
 import { invitationsRouter } from './modules/invitations/invitations.routes.js';
+import { tasksRouter } from './modules/tasks/tasks.routes.js';
 
 export const apiRouter = Router();
 
@@ -13,3 +14,4 @@ apiRouter.use('/auth', authRouter);
 apiRouter.use('/users', usersRouter);
 apiRouter.use('/projects', projectsRouter);
 apiRouter.use('/invitations', invitationsRouter);
+apiRouter.use('/tasks', tasksRouter);

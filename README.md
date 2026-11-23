@@ -3,7 +3,7 @@
 A REST API for team task management: projects, role-based membership, tasks, comments,
 attachments and real-time notifications. Built for the Airtribe Backend & System Design course.
 
-> **Status:** Phase 4 (projects/teams & invitations) complete. Features are added phase by phase. This README
+> **Status:** Phase 5 (tasks) complete. Features are added phase by phase. This README
 > grows with them, and becomes the full reference in Phase 9.
 
 ## Tech stack
@@ -135,19 +135,45 @@ tests/
 
 ## Endpoints so far
 
-| Method | Path                        | Auth | What it does                                      |
-| ------ | --------------------------- | ---- | ------------------------------------------------- |
-| GET    | `/api/v1/health`            | –    | API + database status                             |
-| POST   | `/api/v1/auth/register`     | –    | Create an account and sign in                     |
-| POST   | `/api/v1/auth/login`        | –    | Sign in with email + password                     |
-| POST   | `/api/v1/auth/refresh`      | –    | New access token from the refresh token (rotated) |
-| POST   | `/api/v1/auth/logout`       | ✔    | End this session immediately                      |
-| POST   | `/api/v1/auth/logout-all`   | ✔    | End every session                                 |
-| GET    | `/api/v1/users/me`          | ✔    | View my profile                                   |
-| PATCH  | `/api/v1/users/me`          | ✔    | Update name, bio, avatar URL                      |
-| PATCH  | `/api/v1/users/me/password` | ✔    | Change password (signs out other devices)         |
+| Method           | Path                                                    | Auth | What it does                                     |
+| ---------------- | ------------------------------------------------------- | ---- | ------------------------------------------------ |
+| GET              | `/api/v1/health`                                        | –    | API + database status                            |
+| POST             | `/api/v1/auth/register`                                 | –    | Create an account and sign in                    |
+| POST             | `/api/v1/auth/login`                                    | –    | Sign in with email + password                    |
+| POST             | `/api/v1/auth/refresh`                                  | –    | New access token from the refresh token          |
+| POST             | `/api/v1/auth/logout`                                   | ✔    | End this session immediately                     |
+| POST             | `/api/v1/auth/logout-all`                               | ✔    | End every session                                |
+| GET / PATCH      | `/api/v1/users/me`                                      | ✔    | View / update my profile                         |
+| PATCH            | `/api/v1/users/me/password`                             | ✔    | Change password (signs out other devices)        |
+| POST / GET       | `/api/v1/projects`                                      | ✔    | Create a project (team) / list mine              |
+| GET/PATCH/DELETE | `/api/v1/projects/:projectId`                           | ✔    | View / edit (owner, admin) / delete (owner)      |
+| GET              | `/api/v1/projects/:projectId/members`                   | ✔    | Members and roles                                |
+| PATCH / DELETE   | `/api/v1/projects/:projectId/members/:userId`           | ✔    | Change role (owner) / remove, or leave           |
+| POST / GET       | `/api/v1/projects/:projectId/invitations`               | ✔    | Invite by email / list invitations               |
+| DELETE           | `/api/v1/projects/:projectId/invitations/:invitationId` | ✔    | Revoke a pending invitation                      |
+| GET              | `/api/v1/invitations`                                   | ✔    | Invitations addressed to me                      |
+| POST             | `/api/v1/invitations/:invitationId/accept`, `/decline`  | ✔    | Join the project / decline                       |
+| POST / GET       | `/api/v1/tasks`                                         | ✔    | Create a task / list, filter, search, sort       |
+| GET              | `/api/v1/tasks/:taskId`                                 | ✔    | View a task                                      |
+| PATCH            | `/api/v1/tasks/:taskId`                                 | ✔    | Edit, assign (`assigneeId`), complete (`status`) |
+| DELETE           | `/api/v1/tasks/:taskId`                                 | ✔    | Delete (creator, or project owner/admin)         |
 
-✔ = send `Authorization: Bearer <accessToken>`. Full request/response details are in Swagger UI
+✔ = send `Authorization: Bearer <accessToken>`.
+
+Task list examples:
+
+```
+GET /api/v1/tasks?assigneeId=me                     tasks assigned to me
+GET /api/v1/tasks?status=OPEN,IN_PROGRESS           not finished yet
+GET /api/v1/tasks?status=COMPLETED&projectId=<id>   finished tasks in one project
+GET /api/v1/tasks?q=invoice                         search title + description
+GET /api/v1/tasks?overdue=true&sortBy=dueDate&order=asc
+GET /api/v1/tasks?priority=HIGH,URGENT&page=2&limit=10
+```
+
+Filters: `projectId` (or `none`), `status`, `priority`, `assigneeId` (`me`, `none`, or an ID),
+`creatorId` (`me` or an ID), `dueFrom`, `dueTo`, `overdue`, `q`. Sorting: `sortBy` =
+`createdAt | updatedAt | dueDate | priority | title | status`, `order` = `asc | desc`. Full request/response details are in Swagger UI
 at `/api/docs`. How auth works (sessions, refresh rotation, immediate logout) is explained in
 [`docs/architecture.md`](docs/architecture.md#4-authentication).
 
