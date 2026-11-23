@@ -28,6 +28,17 @@ const envSchema = z.object({
   // Set to the number of proxies in front of the app (e.g. 1 behind Render/Nginx) so
   // req.ip and rate limiting see the real client IP. 0 = no proxy.
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),
+
+  // ── Authentication ──
+  // Signs the short-lived access tokens. Generate one with:
+  //   node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+  JWT_ACCESS_SECRET: z.string().min(32, 'must be at least 32 characters'),
+  // Lifetime of an access token, in a format jsonwebtoken understands (e.g. "15m", "1h").
+  JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
+  // How long a login lasts without activity. Each refresh rotates the token and extends it.
+  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(7),
+  // bcrypt cost factor. 12 is a sensible production value; tests drop to 4 for speed.
+  BCRYPT_SALT_ROUNDS: z.coerce.number().int().min(4).max(15).default(12),
 });
 
 function loadEnv() {
@@ -55,6 +66,8 @@ function loadEnv() {
     }
     // Everything in the app reads env.DATABASE_URL, so swapping it here is enough.
     env.DATABASE_URL = env.TEST_DATABASE_URL;
+    // Hashing at full cost would make the auth tests needlessly slow.
+    env.BCRYPT_SALT_ROUNDS = 4;
     // Keep test output readable. Set TEST_LOG_LEVEL=debug to see logs while debugging a test.
     const testLogLevel = envSchema.shape.LOG_LEVEL.safeParse(process.env.TEST_LOG_LEVEL);
     env.LOG_LEVEL =

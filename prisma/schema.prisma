@@ -1,5 +1,9 @@
-// TaskMaster database schema.
-// Models are added in Phase 3 (first migration), following the design agreed in Phase 1.
+// TaskMaster database schema (PostgreSQL via Prisma 7).
+//
+// Conventions:
+// - UUID primary keys, so IDs can't be guessed or enumerated.
+// - Table names are snake_case plurals (@@map); fields stay camelCase in JS.
+// - Every foreign key states its onDelete behaviour explicitly.
 
 generator client {
   // "prisma-client-js" generates plain JavaScript into node_modules/@prisma/client.
@@ -10,4 +14,45 @@ generator client {
 datasource db {
   provider = "postgresql"
   // The connection URL lives in prisma.config.js (Prisma 7+), not here.
+}
+
+// ─────────────────────────────────────────────────────────────
+// Users & authentication
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique // always stored lower-cased (see auth.schemas.js)
+  passwordHash String
+  name         String   @db.VarChar(100)
+  bio          String?  @db.VarChar(500)
+  avatarUrl    String?  @db.VarChar(2048)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions Session[]
+
+  @@map("users")
+}
+
+// One row per signed-in device. The access token (JWT) carries the session ID, and the
+// auth middleware checks that the session is still active, so logout takes effect
+// immediately instead of waiting for the JWT to expire.
+model Session {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @db.Uuid
+  // SHA-256 of the current refresh token secret. The raw secret only ever lives in the
+  // client's httpOnly cookie, so a database leak doesn't leak usable tokens.
+  refreshTokenHash String
+  userAgent        String?   @db.VarChar(512)
+  ip               String?   @db.VarChar(64)
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  lastUsedAt       DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
 }
