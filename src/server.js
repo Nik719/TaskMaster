@@ -1,8 +1,12 @@
-// Process entry point: starts the HTTP server and shuts it down cleanly.
+// Process entry point: starts the HTTP server (REST + Socket.IO on one port) and shuts it
+// down cleanly.
+import http from 'node:http';
 import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
 import { prisma, checkDatabase } from './config/prisma.js';
+import { closeRealtime, initRealtime } from './realtime/socket.js';
+import { sendInitialCount } from './modules/notifications/notifications.service.js';
 
 async function start() {
   // Fail fast with a clear message if the database isn't reachable at startup.
@@ -20,7 +24,9 @@ async function start() {
   }
 
   const app = createApp();
-  const server = app.listen(env.PORT, () => {
+  const server = http.createServer(app);
+  initRealtime(server, { onConnect: sendInitialCount });
+  server.listen(env.PORT, () => {
     logger.info(`TaskMaster API listening on http://localhost:${env.PORT} (docs: /api/docs)`);
   });
 
@@ -37,6 +43,8 @@ async function start() {
     }, 10_000);
     forceExit.unref();
 
+    // Socket.IO's close also closes the HTTP server it is attached to.
+    await closeRealtime();
     server.close(async () => {
       await prisma.$disconnect();
       logger.info('Shutdown complete');

@@ -4,6 +4,7 @@ import { publicUserSelect } from '../../utils/serializers.js';
 import { pageArgs, pageMeta } from '../../utils/pagination.js';
 import { isManager } from '../projects/access.js';
 import { getAccessibleTask } from '../tasks/tasks.service.js';
+import * as taskEvents from '../notifications/taskEvents.js';
 
 const commentSelect = {
   id: true,
@@ -36,6 +37,7 @@ export async function addComment(taskId, userId, body) {
     data: { taskId, authorId: userId, body },
     select: commentSelect,
   });
+  await taskEvents.taskCommented(userId, task, comment);
   return { comment, task };
 }
 

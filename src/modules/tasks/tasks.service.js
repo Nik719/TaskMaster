@@ -4,6 +4,7 @@ import { publicUserSelect } from '../../utils/serializers.js';
 import { pageArgs, pageMeta } from '../../utils/pagination.js';
 import { getMembership, isManager, requireMember } from '../projects/access.js';
 import { removeFiles } from '../../storage/localStorage.js';
+import * as taskEvents from '../notifications/taskEvents.js';
 
 export const taskSelect = {
   id: true,
@@ -34,7 +35,14 @@ export function visibleTasksWhere(userId) {
 export async function getAccessibleTask(taskId, userId) {
   const task = await prisma.task.findFirst({
     where: { id: taskId, ...visibleTasksWhere(userId) },
-    select: { id: true, projectId: true, creatorId: true, assigneeId: true, status: true },
+    select: {
+      id: true,
+      title: true,
+      projectId: true,
+      creatorId: true,
+      assigneeId: true,
+      status: true,
+    },
   });
   if (!task) throw ApiError.notFound('Task not found');
 
@@ -69,7 +77,7 @@ export async function createTask(userId, input) {
   if (projectId) await requireMember(projectId, userId);
   await assertAssignable({ projectId, creatorId: userId }, fields.assigneeId);
 
-  return prisma.task.create({
+  const task = await prisma.task.create({
     data: {
       ...fields,
       ...completionFields(fields.status, undefined),
@@ -78,6 +86,8 @@ export async function createTask(userId, input) {
     },
     select: taskSelect,
   });
+  if (task.assignee) await taskEvents.taskAssigned(userId, task);
+  return task;
 }
 
 export async function getTask(taskId, userId) {
@@ -100,6 +110,7 @@ export async function updateTask(taskId, userId, changes) {
     data: { ...changes, ...completionFields(changes.status, task.status) },
     select: taskSelect,
   });
+  await taskEvents.taskUpdated(userId, updated, task, changes);
   return { task: updated, previous: task };
 }
 

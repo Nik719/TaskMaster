@@ -3,7 +3,7 @@
 A REST API for team task management: projects, role-based membership, tasks, comments,
 attachments and real-time notifications. Built for the Airtribe Backend & System Design course.
 
-> **Status:** Phase 6 (comments & attachments) complete. Features are added phase by phase. This README
+> **Status:** Phase 7 (real-time notifications) complete. Features are added phase by phase. This README
 > grows with them, and becomes the full reference in Phase 9.
 
 ## Tech stack
@@ -164,6 +164,9 @@ tests/
 | GET / POST       | `/api/v1/tasks/:taskId/attachments`                     | ✔    | List / upload (multipart field `file`)           |
 | GET              | `/api/v1/tasks/:taskId/attachments/:id/download`        | ✔    | Download a file                                  |
 | DELETE           | `/api/v1/tasks/:taskId/attachments/:id`                 | ✔    | Delete (uploader, owner, admin)                  |
+| GET              | `/api/v1/notifications`                                 | ✔    | My notifications (`?unread=true`), `meta.unread` |
+| PATCH            | `/api/v1/notifications/:notificationId/read`            | ✔    | Mark one as read                                 |
+| POST             | `/api/v1/notifications/read-all`                        | ✔    | Mark all as read                                 |
 
 ✔ = send `Authorization: Bearer <accessToken>`.
 
@@ -183,6 +186,24 @@ Filters: `projectId` (or `none`), `status`, `priority`, `assigneeId` (`me`, `non
 `createdAt | updatedAt | dueDate | priority | title | status`, `order` = `asc | desc`. Full request/response details are in Swagger UI
 at `/api/docs`. How auth works (sessions, refresh rotation, immediate logout) is explained in
 [`docs/architecture.md`](docs/architecture.md#4-authentication).
+
+## Real-time notifications
+
+Notifications are saved in the database and pushed live over Socket.IO on the same port as
+the API. Connect with the access token you use for HTTP:
+
+```js
+import { io } from 'socket.io-client';
+
+const socket = io('http://localhost:4000', { auth: { token: accessToken } });
+socket.on('notification', (n) => console.log(n.title)); // e.g. 'Asha assigned you "Fix login bug"'
+socket.on('notification:count', ({ unread }) => updateBadge(unread));
+socket.on('connect_error', (err) => console.error(err.message)); // bad or expired token
+```
+
+You are notified when a task is assigned to you, when a task you created or are assigned to is
+updated, completed, commented on or gets a file, and when you are invited to a project. You are
+never notified about your own actions. Logging out disconnects that device's socket.
 
 ## Project documents
 

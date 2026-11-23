@@ -9,6 +9,7 @@ import { projectsDocs } from '../modules/projects/projects.docs.js';
 import { tasksDocs } from '../modules/tasks/tasks.docs.js';
 import { commentsDocs } from '../modules/comments/comments.docs.js';
 import { attachmentsDocs } from '../modules/attachments/attachments.docs.js';
+import { notificationsDocs } from '../modules/notifications/notifications.docs.js';
 
 const moduleDocs = [
   healthDocs,
@@ -18,6 +19,7 @@ const moduleDocs = [
   tasksDocs,
   commentsDocs,
   attachmentsDocs,
+  notificationsDocs,
 ];
 
 const errorResponseSchema = {

@@ -3,6 +3,7 @@ import { prisma } from '../../config/prisma.js';
 import { env } from '../../config/env.js';
 import { ApiError } from '../../utils/ApiError.js';
 import { profileSelect } from '../../utils/serializers.js';
+import { disconnectSession, disconnectUser } from '../../realtime/socket.js';
 import {
   buildRefreshToken,
   generateRefreshSecret,
@@ -119,6 +120,8 @@ export async function logout(sessionId) {
     where: { id: sessionId, revokedAt: null },
     data: { revokedAt: new Date() },
   });
+  // Open WebSocket connections of this device end too.
+  disconnectSession(sessionId);
 }
 
 /** Ends every session of the user except (optionally) one. */
@@ -127,4 +130,5 @@ export async function revokeAllSessions(userId, { except } = {}) {
     where: { userId, revokedAt: null, ...(except && { id: { not: except } }) },
     data: { revokedAt: new Date() },
   });
+  disconnectUser(userId, { exceptSessionId: except });
 }

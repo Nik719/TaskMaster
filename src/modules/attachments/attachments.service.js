@@ -4,6 +4,7 @@ import { publicUserSelect } from '../../utils/serializers.js';
 import { pathFor, removeFiles } from '../../storage/localStorage.js';
 import { isManager } from '../projects/access.js';
 import { getAccessibleTask } from '../tasks/tasks.service.js';
+import * as taskEvents from '../notifications/taskEvents.js';
 
 const attachmentSelect = {
   id: true,
@@ -29,8 +30,9 @@ export async function listAttachments(taskId, userId) {
  * but if saving the record fails the file is removed so no orphans are left on disk.
  */
 export async function addAttachment(task, userId, file) {
+  let attachment;
   try {
-    const attachment = await prisma.attachment.create({
+    attachment = await prisma.attachment.create({
       data: {
         taskId: task.id,
         uploaderId: userId,
@@ -41,11 +43,12 @@ export async function addAttachment(task, userId, file) {
       },
       select: attachmentSelect,
     });
-    return { attachment, task };
   } catch (err) {
     await removeFiles([file.filename]);
     throw err;
   }
+  await taskEvents.attachmentAdded(userId, task, attachment);
+  return { attachment, task };
 }
 
 async function findAttachment(taskId, attachmentId) {
