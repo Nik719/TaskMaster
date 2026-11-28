@@ -5,6 +5,7 @@ import { pathFor, removeFiles } from '../../storage/localStorage.js';
 import { isManager } from '../projects/access.js';
 import { getAccessibleTask } from '../tasks/tasks.service.js';
 import * as taskEvents from '../notifications/taskEvents.js';
+import { withNotifications } from '../notifications/notifications.service.js';
 
 const attachmentSelect = {
   id: true,
@@ -32,22 +33,26 @@ export async function listAttachments(taskId, userId) {
 export async function addAttachment(task, userId, file) {
   let attachment;
   try {
-    attachment = await prisma.attachment.create({
-      data: {
-        taskId: task.id,
-        uploaderId: userId,
-        originalName: file.originalname.replace(/[\\/\0]/g, '_').slice(0, 255),
-        storageKey: file.filename,
-        mimeType: file.mimetype,
-        size: file.size,
-      },
-      select: attachmentSelect,
+    attachment = await withNotifications(async (tx, outbox) => {
+      const created = await tx.attachment.create({
+        data: {
+          taskId: task.id,
+          uploaderId: userId,
+          originalName: file.originalname.replace(/[\\/\0]/g, '_').slice(0, 255),
+          storageKey: file.filename,
+          mimeType: file.mimetype,
+          size: file.size,
+        },
+        select: attachmentSelect,
+      });
+      outbox.push(...(await taskEvents.attachmentAdded(tx, userId, task, created)));
+      return created;
     });
   } catch (err) {
+    // Covers a failed notification too: the transaction rolled back, so drop the file.
     await removeFiles([file.filename]);
     throw err;
   }
-  await taskEvents.attachmentAdded(userId, task, attachment);
   return { attachment, task };
 }
 

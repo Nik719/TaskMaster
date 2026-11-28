@@ -199,6 +199,24 @@ describe('invitations', () => {
     ).toBe(403);
   });
 
+  it('creates only one pending invitation when duplicates arrive concurrently', async () => {
+    const owner = await registerUser(app);
+    const project = await createProject(owner.auth);
+    const url = `${api}/projects/${project.id}/invitations`;
+
+    const responses = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        request(app).post(url).set(owner.auth).send({ email: 'race@example.com' }),
+      ),
+    );
+    expect(responses.map((r) => r.status).sort()).toEqual([201, 409, 409, 409, 409]);
+    expect(
+      await prisma.projectInvitation.count({
+        where: { projectId: project.id, email: 'race@example.com', status: 'PENDING' },
+      }),
+    ).toBe(1);
+  });
+
   it('only the owner can invite admins; revoked invitations disappear', async () => {
     const owner = await registerUser(app);
     const admin = await registerUser(app);

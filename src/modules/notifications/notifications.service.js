@@ -1,7 +1,9 @@
 // Creates notifications and pushes them to connected clients.
 //
-// notify() is called by other services after their change has been saved. It never throws:
-// a failed notification must not turn a successful task update into an error response.
+// Notification rows are written in the *same transaction* as the change that caused them
+// (see withNotifications), so a task update and its notifications commit or roll back
+// together. Only the Socket.IO push happens after commit; it is best-effort because the
+// stored row is the source of truth and clients re-fetch it on reconnect.
 import { prisma } from '../../config/prisma.js';
 import { logger } from '../../config/logger.js';
 import { ApiError } from '../../utils/ApiError.js';
@@ -35,6 +37,10 @@ async function pushCount(userId) {
 }
 
 /**
+ * Inserts notification rows using `db` (a transaction client) and returns them for
+ * publishing after commit. Errors propagate so the surrounding transaction rolls back.
+ *
+ * @param {import('@prisma/client').Prisma.TransactionClient} db
  * @param {object} n
  * @param {Array<string|null|undefined>} n.recipients user IDs; duplicates, empties and the actor are dropped
  * @param {string} n.actorId who caused it (never notified about their own action)
@@ -43,37 +49,58 @@ async function pushCount(userId) {
  * @param {string} [n.body]
  * @param {string} [n.taskId]
  * @param {string} [n.projectId]
+ * @returns {Promise<Array<object>>}
  */
-export async function notify({ recipients, actorId, type, title, body, taskId, projectId }) {
+export async function notify(db, { recipients, actorId, type, title, body, taskId, projectId }) {
+  const userIds = [...new Set(recipients.filter((id) => id && id !== actorId))];
+  if (userIds.length === 0) return [];
+
+  const actor = await db.user.findUnique({ where: { id: actorId }, select: { name: true } });
+  const headline = title(actor?.name ?? 'Someone').slice(0, 300);
+
+  return db.notification.createManyAndReturn({
+    data: userIds.map((userId) => ({
+      userId,
+      actorId,
+      type,
+      title: headline,
+      body: body?.slice(0, 1000),
+      taskId,
+      projectId,
+    })),
+    select: { userId: true, ...notificationSelect },
+  });
+}
+
+/** Pushes committed notifications to connected clients. Never throws: delivery is best-effort. */
+export async function publish(notifications) {
+  if (notifications.length === 0) return;
   try {
-    const userIds = [...new Set(recipients.filter((id) => id && id !== actorId))];
-    if (userIds.length === 0) return;
-
-    const actor = await prisma.user.findUnique({ where: { id: actorId }, select: { name: true } });
-    const headline = title(actor?.name ?? 'Someone').slice(0, 300);
-
-    const created = await prisma.notification.createManyAndReturn({
-      data: userIds.map((userId) => ({
-        userId,
-        actorId,
-        type,
-        title: headline,
-        body: body?.slice(0, 1000),
-        taskId,
-        projectId,
-      })),
-      select: { userId: true, ...notificationSelect },
-    });
-
-    await Promise.all(
-      created.map(async ({ userId, ...notification }) => {
-        emitToUser(userId, EVENTS.NOTIFICATION, notification);
-        await pushCount(userId);
-      }),
-    );
+    const recipients = new Set();
+    for (const { userId, ...notification } of notifications) {
+      emitToUser(userId, EVENTS.NOTIFICATION, notification);
+      recipients.add(userId);
+    }
+    await Promise.all([...recipients].map(pushCount));
   } catch (err) {
-    logger.error({ err, type, taskId }, 'Failed to create notification');
+    logger.warn({ err }, 'Failed to push notifications');
   }
+}
+
+/**
+ * Transactional event pattern: runs `work(tx, outbox)` in one database transaction, where
+ * `outbox` collects the notifications created inside it. They are published only after the
+ * transaction commits, so clients are never told about a change that was rolled back.
+ *
+ * @template T
+ * @param {(tx: import('@prisma/client').Prisma.TransactionClient, outbox: object[]) => Promise<T>} work
+ * @returns {Promise<T>}
+ */
+export async function withNotifications(work) {
+  const outbox = [];
+  const result = await prisma.$transaction((tx) => work(tx, outbox));
+  await publish(outbox);
+  return result;
 }
 
 export async function listNotifications(userId, { unread, ...page }) {

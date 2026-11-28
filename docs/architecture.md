@@ -119,20 +119,22 @@ logout ──► session.revokedAt = now ──► that JWT and refresh token st
 
 Access is decided in the services from project membership:
 
-| Action                                  | Who                                           |
-| --------------------------------------- | --------------------------------------------- |
-| View project, members, tasks, comments  | any member                                    |
-| Update project                          | OWNER, ADMIN                                  |
-| Delete project                          | OWNER                                         |
-| Invite / revoke invitation              | OWNER, ADMIN                                  |
-| Change a member's role                  | OWNER                                         |
-| Remove a member                         | OWNER (anyone but self); ADMIN (only MEMBERs) |
-| Leave a project                         | any member except the OWNER                   |
-| Create / update a task, comment, upload | any member                                    |
-| Delete a task                           | its creator, OWNER, ADMIN                     |
-| Edit a comment                          | its author                                    |
-| Delete a comment / attachment           | its author/uploader, OWNER, ADMIN             |
-| Personal task (no project)              | only its creator                              |
+| Action                                 | Who                                           |
+| -------------------------------------- | --------------------------------------------- |
+| View project, members, tasks, comments | any member                                    |
+| Update project                         | OWNER, ADMIN                                  |
+| Delete project                         | OWNER                                         |
+| Invite / revoke invitation             | OWNER, ADMIN (one pending invite per email)   |
+| Change a member's role                 | OWNER                                         |
+| Remove a member                        | OWNER (anyone but self); ADMIN (only MEMBERs) |
+| Leave a project                        | any member except the OWNER                   |
+| Create a task, comment, upload         | any member                                    |
+| Edit a task's content / reassign it    | its creator, OWNER, ADMIN                     |
+| Change a task's status                 | its assignee, its creator, OWNER, ADMIN       |
+| Delete a task                          | its creator, OWNER, ADMIN                     |
+| Edit a comment                         | its author                                    |
+| Delete a comment / attachment          | its author/uploader, OWNER, ADMIN             |
+| Personal task (no project)             | only its creator                              |
 
 Something a user is not allowed to _see_ returns **404**, not 403, so IDs of other teams'
 data can't be probed. 403 is used only when the user can see the resource but lacks the role
@@ -153,8 +155,13 @@ Setting `status: COMPLETED` stamps `completedAt`; moving away from it clears it.
 
 ## 7. Real-time notifications
 
-- Every notification is **written to the database first**, then **pushed** with Socket.IO to
-  the room `user:<id>`. Offline users read them later from `GET /notifications`.
+- Notifications use a **transactional event pattern** (`withNotifications`): the rows are
+  inserted in the **same database transaction** as the change that caused them, so a task
+  update and its notifications commit or roll back together. Only after commit are they
+  **pushed** with Socket.IO to the room `user:<id>` (best-effort; the stored row is the source
+  of truth). Offline users read them later from `GET /notifications`.
+- Duplicate invitations are prevented in the database transaction: a transaction-scoped
+  advisory lock on (project, email) serialises concurrent invites before the pending check.
 - The Socket.IO handshake authenticates with the same access token
   (`io(url, { auth: { token } })`) and the same session check as HTTP.
 - Events: `notification` (new notification object), `notification:count` (unread count).

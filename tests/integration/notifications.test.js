@@ -1,11 +1,16 @@
 import http from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { io as connect } from 'socket.io-client';
 import { createApp } from '../../src/app.js';
 import { prisma } from '../../src/config/prisma.js';
 import { closeRealtime, initRealtime } from '../../src/realtime/socket.js';
-import { sendInitialCount } from '../../src/modules/notifications/notifications.service.js';
+import {
+  notify,
+  sendInitialCount,
+  withNotifications,
+} from '../../src/modules/notifications/notifications.service.js';
 import { resetDatabase } from '../helpers/db.js';
 import { registerUser } from '../helpers/auth.js';
 import { addMember, createProject } from '../helpers/projects.js';
@@ -154,6 +159,65 @@ describe('stored notifications (US13)', () => {
     const rest = await request(app).post(`${api}/notifications/read-all`).set(member.auth);
     expect(rest.body.data).toEqual({ marked: 3 });
     expect((await notificationsOf(member)).meta.unread).toBe(0);
+  });
+});
+
+describe('transactional notifications', () => {
+  it('rolls the change back when its notification cannot be written', async () => {
+    const { owner, project } = await team();
+    const task = (
+      await request(app)
+        .post(`${api}/tasks`)
+        .set(owner.auth)
+        .send({ title: 'Original', projectId: project.id })
+    ).body.data;
+    // Setup already produced notifications (the member's invitation); none may be added.
+    const before = await prisma.notification.count();
+
+    // A recipient that doesn't exist violates the notification's foreign key mid-transaction.
+    await expect(
+      withNotifications(async (tx, outbox) => {
+        await tx.task.update({ where: { id: task.id }, data: { title: 'Changed' } });
+        outbox.push(
+          ...(await notify(tx, {
+            recipients: [randomUUID()],
+            actorId: owner.user.id,
+            type: 'TASK_UPDATED',
+            title: (name) => `${name} changed a task`,
+            taskId: task.id,
+          })),
+        );
+      }),
+    ).rejects.toThrow();
+
+    expect((await prisma.task.findUnique({ where: { id: task.id } })).title).toBe('Original');
+    expect(await prisma.notification.count()).toBe(before);
+  });
+
+  it('does not push notifications for a transaction that rolled back', async () => {
+    const { owner, member } = await team();
+    const { socket } = await openSocket(member.token);
+    const before = await prisma.notification.count();
+    try {
+      const pushed = nextEvent(socket, 'notification', 500);
+      await expect(
+        withNotifications(async (tx, outbox) => {
+          outbox.push(
+            ...(await notify(tx, {
+              recipients: [member.user.id],
+              actorId: owner.user.id,
+              type: 'TASK_UPDATED',
+              title: (name) => `${name} did something`,
+            })),
+          );
+          throw new Error('later step failed');
+        }),
+      ).rejects.toThrow('later step failed');
+      await expect(pushed).rejects.toThrow(/no notification/);
+      expect(await prisma.notification.count()).toBe(before);
+    } finally {
+      socket.disconnect();
+    }
   });
 });
 

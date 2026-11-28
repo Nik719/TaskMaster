@@ -5,6 +5,7 @@ import { pageArgs, pageMeta } from '../../utils/pagination.js';
 import { getMembership, isManager, requireMember } from '../projects/access.js';
 import { removeFiles } from '../../storage/localStorage.js';
 import * as taskEvents from '../notifications/taskEvents.js';
+import { withNotifications } from '../notifications/notifications.service.js';
 
 export const taskSelect = {
   id: true,
@@ -77,17 +78,19 @@ export async function createTask(userId, input) {
   if (projectId) await requireMember(projectId, userId);
   await assertAssignable({ projectId, creatorId: userId }, fields.assigneeId);
 
-  const task = await prisma.task.create({
-    data: {
-      ...fields,
-      ...completionFields(fields.status, undefined),
-      projectId: projectId ?? null,
-      creatorId: userId,
-    },
-    select: taskSelect,
+  return withNotifications(async (tx, outbox) => {
+    const task = await tx.task.create({
+      data: {
+        ...fields,
+        ...completionFields(fields.status, undefined),
+        projectId: projectId ?? null,
+        creatorId: userId,
+      },
+      select: taskSelect,
+    });
+    if (task.assignee) outbox.push(...(await taskEvents.taskAssigned(tx, userId, task)));
+    return task;
   });
-  if (task.assignee) await taskEvents.taskAssigned(userId, task);
-  return task;
 }
 
 export async function getTask(taskId, userId) {
@@ -96,21 +99,46 @@ export async function getTask(taskId, userId) {
 }
 
 /**
- * Any member who can see the task can update it (collaboration). Returns the updated task
- * and the previous values of the fields that changed, which drive notifications.
+ * Who may change what on a task:
+ * - status: the assignee (they do the work), the creator, or a project owner/admin;
+ * - everything else (title, description, priority, due date, assignee): the creator or a
+ *   project owner/admin, so other members can't rewrite or reassign someone else's task.
+ * Members who may see the task but not change it get 403.
+ */
+function assertCanUpdate(task, role, userId, changes) {
+  const controlsTask = task.creatorId === userId || isManager(role);
+  if (controlsTask) return;
+
+  const onlyStatus = Object.keys(changes).every((field) => field === 'status');
+  if (onlyStatus && task.assigneeId === userId) return;
+
+  throw ApiError.forbidden(
+    task.assigneeId === userId
+      ? 'As the assignee you can only change the status; ask the creator or a project owner/admin for other changes'
+      : 'Only the task creator, its assignee (status only) or a project owner/admin can update this task',
+  );
+}
+
+/**
+ * Returns the updated task and its previous values, which drive notifications. The update
+ * and its notifications are written in one transaction.
  */
 export async function updateTask(taskId, userId, changes) {
-  const { task } = await getAccessibleTask(taskId, userId);
+  const { task, role } = await getAccessibleTask(taskId, userId);
+  assertCanUpdate(task, role, userId, changes);
   if (changes.assigneeId !== undefined && changes.assigneeId !== task.assigneeId) {
     await assertAssignable(task, changes.assigneeId);
   }
 
-  const updated = await prisma.task.update({
-    where: { id: taskId },
-    data: { ...changes, ...completionFields(changes.status, task.status) },
-    select: taskSelect,
+  const updated = await withNotifications(async (tx, outbox) => {
+    const result = await tx.task.update({
+      where: { id: taskId },
+      data: { ...changes, ...completionFields(changes.status, task.status) },
+      select: taskSelect,
+    });
+    outbox.push(...(await taskEvents.taskUpdated(tx, userId, result, task, changes)));
+    return result;
   });
-  await taskEvents.taskUpdated(userId, updated, task, changes);
   return { task: updated, previous: task };
 }
 

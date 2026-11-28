@@ -71,9 +71,11 @@ export const tasksDocs = {
         summary: 'Update a task (edit, assign, complete)',
         description:
           'Mark complete with `{ "status": "COMPLETED" }` (sets `completedAt`). Assign with ' +
-          '`{ "assigneeId": "<userId>" }`, unassign with `null`. Any project member can update.',
+          '`{ "assigneeId": "<userId>" }`, unassign with `null`. The creator or a project ' +
+          'owner/admin can change any field; the assignee can change only `status`. Other ' +
+          'members get 403.',
         requestBody: jsonBody(ref('TaskUpdate'), { status: 'COMPLETED' }),
-        responses: { 200: ok('Updated', ref('Task')), ...errors(400, 401, 404) },
+        responses: { 200: ok('Updated', ref('Task')), ...errors(400, 401, 403, 404) },
       },
       delete: {
         tags,

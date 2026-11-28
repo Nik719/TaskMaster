@@ -153,6 +153,53 @@ describe('assigning and completing (US6, US7)', () => {
   });
 });
 
+describe('update permissions', () => {
+  async function setup() {
+    const { owner, member, project } = await team();
+    const creator = await registerUser(app);
+    const other = await registerUser(app);
+    await addMember(app, owner, project.id, creator);
+    await addMember(app, owner, project.id, other);
+    const task = await createTask(creator, {
+      title: 'Write release notes',
+      projectId: project.id,
+      assigneeId: member.user.id,
+    });
+    const patch = (user, body) =>
+      request(app).patch(`${api}/tasks/${task.id}`).set(user.auth).send(body);
+    return { owner, assignee: member, creator, other, task, patch };
+  }
+
+  it('lets the assignee change status only', async () => {
+    const { assignee, other, patch } = await setup();
+    expect((await patch(assignee, { status: 'IN_PROGRESS' })).status).toBe(200);
+    expect((await patch(assignee, { title: 'Renamed' })).status).toBe(403);
+    expect((await patch(assignee, { status: 'COMPLETED', priority: 'LOW' })).status).toBe(403);
+    expect((await patch(assignee, { assigneeId: other.user.id })).status).toBe(403);
+  });
+
+  it('stops other members from changing anything', async () => {
+    const { other, patch } = await setup();
+    expect((await patch(other, { status: 'COMPLETED' })).status).toBe(403);
+    expect((await patch(other, { assigneeId: other.user.id })).status).toBe(403);
+  });
+
+  it('lets the creator and owners/admins change content and reassign', async () => {
+    const { owner, creator, other, task, patch } = await setup();
+    expect((await patch(creator, { title: 'Release notes v2' })).status).toBe(200);
+    const reassigned = await patch(owner, { assigneeId: other.user.id, priority: 'HIGH' });
+    expect(reassigned.status).toBe(200);
+    expect(reassigned.body.data).toMatchObject({
+      priority: 'HIGH',
+      assignee: { id: other.user.id },
+    });
+
+    // A rejected update leaves the task untouched.
+    const after = await request(app).get(`${api}/tasks/${task.id}`).set(creator.auth);
+    expect(after.body.data.title).toBe('Release notes v2');
+  });
+});
+
 describe('deleting', () => {
   it('allows the creator or an owner/admin, not other members', async () => {
     const { owner, member, project } = await team();

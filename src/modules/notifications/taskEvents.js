@@ -1,5 +1,8 @@
 // Turns task-related changes into notifications. Keeping the wording and recipient rules
 // here (instead of scattered through the task/comment services) makes them easy to review.
+//
+// Every function takes the transaction client `db` and returns the created notifications,
+// which the caller pushes into the outbox of withNotifications().
 import { notify } from './notifications.service.js';
 
 const quote = (title) => `"${title.length > 80 ? `${title.slice(0, 77)}...` : title}"`;
@@ -12,8 +15,8 @@ const FIELD_LABELS = {
   dueDate: 'due date',
 };
 
-export function taskAssigned(actorId, task) {
-  return notify({
+export function taskAssigned(db, actorId, task) {
+  return notify(db, {
     recipients: [task.assignee?.id],
     actorId,
     type: 'TASK_ASSIGNED',
@@ -28,21 +31,21 @@ export function taskAssigned(actorId, task) {
  * After an update: a new assignee hears "assigned"; the creator and assignee hear about
  * other changes ("completed" gets its own type, since that's what people care about most).
  */
-export async function taskUpdated(actorId, task, previous, changes) {
+export async function taskUpdated(db, actorId, task, previous, changes) {
   const reassigned = changes.assigneeId !== undefined && changes.assigneeId !== previous.assigneeId;
-  if (reassigned && task.assignee) await taskAssigned(actorId, task);
+  const created = reassigned && task.assignee ? await taskAssigned(db, actorId, task) : [];
 
   const changed = Object.keys(FIELD_LABELS).filter(
     (field) =>
       changes[field] !== undefined && !(field === 'status' && changes.status === previous.status),
   );
-  if (changed.length === 0) return;
+  if (changed.length === 0) return created;
 
   // Whoever was just assigned already got the "assigned" notification.
   const recipients = [task.creator.id, reassigned ? null : task.assignee?.id];
   const completed = changes.status === 'COMPLETED' && previous.status !== 'COMPLETED';
 
-  await notify({
+  const updated = await notify(db, {
     recipients,
     actorId,
     type: completed ? 'TASK_COMPLETED' : 'TASK_UPDATED',
@@ -54,10 +57,11 @@ export async function taskUpdated(actorId, task, previous, changes) {
     taskId: task.id,
     projectId: task.project?.id,
   });
+  return [...created, ...updated];
 }
 
-export function taskCommented(actorId, task, comment) {
-  return notify({
+export function taskCommented(db, actorId, task, comment) {
+  return notify(db, {
     recipients: [task.creatorId, task.assigneeId],
     actorId,
     type: 'TASK_COMMENTED',
@@ -68,8 +72,8 @@ export function taskCommented(actorId, task, comment) {
   });
 }
 
-export function attachmentAdded(actorId, task, attachment) {
-  return notify({
+export function attachmentAdded(db, actorId, task, attachment) {
+  return notify(db, {
     recipients: [task.creatorId, task.assigneeId],
     actorId,
     type: 'TASK_UPDATED',
@@ -80,8 +84,8 @@ export function attachmentAdded(actorId, task, attachment) {
   });
 }
 
-export function invited(actorId, inviteeId, invitation) {
-  return notify({
+export function invited(db, actorId, inviteeId, invitation) {
+  return notify(db, {
     recipients: [inviteeId],
     actorId,
     type: 'PROJECT_INVITATION',

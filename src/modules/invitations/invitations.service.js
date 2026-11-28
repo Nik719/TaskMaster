@@ -4,6 +4,7 @@ import { ApiError } from '../../utils/ApiError.js';
 import { publicUserSelect } from '../../utils/serializers.js';
 import { MANAGER_ROLES, ROLES, requireRole } from '../projects/access.js';
 import * as taskEvents from '../notifications/taskEvents.js';
+import { withNotifications } from '../notifications/notifications.service.js';
 
 const INVITATION_TTL_DAYS = 7;
 
@@ -34,24 +35,35 @@ export async function createInvitation(projectId, actorId, { email, role }) {
     if (alreadyMember) throw ApiError.conflict('This person is already a member of the project');
   }
 
-  const pending = await prisma.projectInvitation.findFirst({
-    where: { projectId, email, status: 'PENDING', expiresAt: { gt: new Date() } },
-    select: { id: true },
-  });
-  if (pending) throw ApiError.conflict('A pending invitation for this email already exists');
+  const invitation = await withNotifications(async (tx, outbox) => {
+    // Check-then-insert is only safe if concurrent invites for the same project and email
+    // run one at a time. A transaction-scoped advisory lock serializes exactly those requests
+    // (it is released on commit/rollback); a plain unique index can't express "one PENDING,
+    // unexpired invitation" because expiry is time-based.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`invitation:${projectId}:${email}`}, 0))`;
 
-  const invitation = await prisma.projectInvitation.create({
-    data: {
-      projectId,
-      email,
-      role,
-      invitedById: actorId,
-      expiresAt: new Date(Date.now() + INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000),
-    },
-    select: invitationSelect,
+    const pending = await tx.projectInvitation.findFirst({
+      where: { projectId, email, status: 'PENDING', expiresAt: { gt: new Date() } },
+      select: { id: true },
+    });
+    if (pending) throw ApiError.conflict('A pending invitation for this email already exists');
+
+    const created = await tx.projectInvitation.create({
+      data: {
+        projectId,
+        email,
+        role,
+        invitedById: actorId,
+        expiresAt: new Date(Date.now() + INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000),
+      },
+      select: invitationSelect,
+    });
+    // People without an account yet see the invitation via GET /invitations after signing up.
+    if (existingUser) {
+      outbox.push(...(await taskEvents.invited(tx, actorId, existingUser.id, created)));
+    }
+    return created;
   });
-  // People without an account yet see the invitation via GET /invitations after signing up.
-  if (existingUser) await taskEvents.invited(actorId, existingUser.id, invitation);
   return { invitation, inviteeId: existingUser?.id ?? null };
 }
 

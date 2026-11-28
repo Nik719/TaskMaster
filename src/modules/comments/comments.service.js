@@ -5,6 +5,7 @@ import { pageArgs, pageMeta } from '../../utils/pagination.js';
 import { isManager } from '../projects/access.js';
 import { getAccessibleTask } from '../tasks/tasks.service.js';
 import * as taskEvents from '../notifications/taskEvents.js';
+import { withNotifications } from '../notifications/notifications.service.js';
 
 const commentSelect = {
   id: true,
@@ -33,11 +34,14 @@ export async function listComments(taskId, userId, query) {
 /** Returns the comment and the task (for notifications). */
 export async function addComment(taskId, userId, body) {
   const { task } = await getAccessibleTask(taskId, userId);
-  const comment = await prisma.comment.create({
-    data: { taskId, authorId: userId, body },
-    select: commentSelect,
+  const comment = await withNotifications(async (tx, outbox) => {
+    const created = await tx.comment.create({
+      data: { taskId, authorId: userId, body },
+      select: commentSelect,
+    });
+    outbox.push(...(await taskEvents.taskCommented(tx, userId, task, created)));
+    return created;
   });
-  await taskEvents.taskCommented(userId, task, comment);
   return { comment, task };
 }
 
